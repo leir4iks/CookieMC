@@ -1,0 +1,48 @@
+--- a/net/minecraft/world/level/block/LeavesBlock.java
++++ b/net/minecraft/world/level/block/LeavesBlock.java
+@@ -2,6 +_,7 @@
+ 
+ import com.mojang.serialization.MapCodec;
+ import java.util.OptionalInt;
++import io.cookiemc.cookie.Config;
+ import net.minecraft.core.BlockPos;
+ import net.minecraft.core.Direction;
+ import net.minecraft.core.particles.ParticleTypes;
+@@ -55,7 +_,7 @@
+ 
+     @Override
+     protected void randomTick(BlockState state, ServerLevel level, BlockPos pos, RandomSource random) {
+-        if (this.decaying(state)) {
++        if (!Config.INSTANCE.blocks.disableLeafDecay && this.decaying(state)) { // cookie - disable leaf decay
+             // CraftBukkit start
+             org.bukkit.event.block.LeavesDecayEvent event = new org.bukkit.event.block.LeavesDecayEvent(org.bukkit.craftbukkit.block.CraftBlock.at(level, pos));
+             level.getCraftServer().getPluginManager().callEvent(event);
+@@ -75,7 +_,27 @@
+ 
+     @Override
+     protected void tick(BlockState state, ServerLevel level, BlockPos pos, RandomSource random) {
+-        level.setBlock(pos, updateDistance(state, level, pos), 3);
++        // cookie start - dont set the block if it doesnt need to
++        // leaf decay config
++        if (Config.INSTANCE.blocks.disableLeafDecay) {
++            return;
++        }
++        int newValue = 7;
++        int oldValue = state.getValue(DISTANCE);
++        BlockPos.MutableBlockPos mutable = new BlockPos.MutableBlockPos();
++
++        for (Direction direction : Direction.values()) {
++            mutable.setWithOffset(pos, direction);
++            newValue = Math.min(newValue, getDistanceAt(level.getBlockState(mutable)) + 1);
++            if (newValue == 1) {
++                break;
++            }
++        }
++
++        if (newValue != oldValue) {
++            level.setBlock(pos, state.setValue(DISTANCE, newValue), 3);
++        }
++        // cookie end
+     }
+ 
+     @Override

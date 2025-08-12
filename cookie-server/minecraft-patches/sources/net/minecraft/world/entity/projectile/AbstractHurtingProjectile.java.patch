@@ -1,0 +1,14 @@
+--- a/net/minecraft/world/entity/projectile/AbstractHurtingProjectile.java
++++ b/net/minecraft/world/entity/projectile/AbstractHurtingProjectile.java
+@@ -80,6 +_,11 @@
+             this.setPos(location);
+             this.applyEffectsFromBlocks();
+             super.tick();
++            // cookie start - Threaded Regions
++            if (!io.cookiemc.cookie.region.ServerRegions.isTickThreadFor(this.level(), this.position(), this.getDeltaMovement(), 1)) {
++                return;
++            }
++            // cookie end
+             if (this.shouldBurn()) {
+                 this.igniteForSeconds(1.0F);
+             }

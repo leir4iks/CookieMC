@@ -1,0 +1,167 @@
+--- a/net/minecraft/world/level/ServerExplosion.java
++++ b/net/minecraft/world/level/ServerExplosion.java
+@@ -1,5 +_,7 @@
+ package net.minecraft.world.level;
+ 
++import io.cookiemc.cookie.Config;
++import io.cookiemc.cookie.region.ServerRegions;
+ import it.unimi.dsi.fastutil.objects.ObjectArrayList;
+ import java.util.ArrayList;
+ import java.util.HashMap;
+@@ -13,13 +_,12 @@
+ import net.minecraft.core.BlockPos;
+ import net.minecraft.server.level.ServerLevel;
+ import net.minecraft.util.Mth;
+-import net.minecraft.util.profiling.Profiler;
+-import net.minecraft.util.profiling.ProfilerFiller;
+ import net.minecraft.world.damagesource.DamageSource;
+ import net.minecraft.world.entity.Entity;
+ import net.minecraft.world.entity.EntityType;
+ import net.minecraft.world.entity.LivingEntity;
+ import net.minecraft.world.entity.ai.attributes.Attributes;
++import net.minecraft.world.entity.boss.enderdragon.EndCrystal;
+ import net.minecraft.world.entity.item.ItemEntity;
+ import net.minecraft.world.entity.item.PrimedTnt;
+ import net.minecraft.world.entity.player.Player;
+@@ -39,6 +_,8 @@
+ import org.bukkit.craftbukkit.event.CraftEventFactory;
+ import org.bukkit.craftbukkit.util.CraftLocation;
+ import org.bukkit.Location;
++import org.bukkit.event.entity.EntityRemoveEvent;
++import org.bukkit.event.entity.ExplosionPrimeEvent;
+ // CraftBukkit end
+ 
+ public class ServerExplosion implements Explosion {
+@@ -50,9 +_,9 @@
+     private final ServerLevel level;
+     private final Vec3 center;
+     @Nullable
+-    private final Entity source;
++    public final Entity source; // cookie - private -> public
+     private final float radius;
+-    private final DamageSource damageSource;
++    public final DamageSource damageSource; // cookie - private -> public
+     private final ExplosionDamageCalculator damageCalculator;
+     private final Map<Player, Vec3> hitPlayers = new HashMap<>();
+     // CraftBukkit - add field
+@@ -518,6 +_,23 @@
+                                         dragonPart.hurtServer(this.level, this.damageSource, this.damageCalculator.getEntityDamageAmount(this, dragonPart, f1));
+                                     }
+                                 }
++                            // cookie start
++                            } else if (Config.INSTANCE.blocks.chainEndCrystalExplosions && entity instanceof EndCrystal endCrystal) {
++                                int chunkX = endCrystal.blockPosition().getX() >> 4;
++                                int chunkZ = endCrystal.blockPosition().getZ() >> 4;
++                                this.level.server.threadedServer().taskQueue.queueTickTaskQueue(
++                                    this.level, chunkX, chunkZ, () -> {
++                                        DamageSource damageSource1 = damageSource.getEntity() != null ? endCrystal.damageSources().explosion(endCrystal, damageSource.getEntity()) : null;
++                                        ExplosionPrimeEvent event = CraftEventFactory.callExplosionPrimeEvent(endCrystal, endCrystal.getExplosionPower(), endCrystal.hasExplosionFire());
++                                        if (event.isCancelled()) {
++                                            return;
++                                        }
++
++                                        endCrystal.remove(Entity.RemovalReason.KILLED, EntityRemoveEvent.Cause.EXPLODE);
++                                        level.explode(endCrystal, damageSource1, null, endCrystal.getX(), endCrystal.getY(), endCrystal.getZ(), event.getRadius(), event.getFire(), endCrystal.getExplosionEffect());
++                                    }
++                                );
++                            // cookie end
+                             } else {
+                                 entity.hurtServer(this.level, this.damageSource, this.damageCalculator.getEntityDamageAmount(this, entity, f1));
+                             }
+@@ -531,7 +_,7 @@
+                         double d4 = (1.0 - d) * f1 * knockbackMultiplier;
+                         double d5;
+                         if (entity instanceof LivingEntity livingEntity) {
+-                            d5 = entity instanceof Player && this.level.paperConfig().environment.disableExplosionKnockback ? 0 : d4 * (1.0 - livingEntity.getAttributeValue(Attributes.EXPLOSION_KNOCKBACK_RESISTANCE)); // Paper
++                            d5 = entity instanceof Player && this.level.paperConfig().environment.disableExplosionKnockback ? 0 : getExplosionKnockback(livingEntity, d4); // Paper // cookie - old blast protection explosion knockback
+                         } else {
+                             d5 = d4;
+                         }
+@@ -559,8 +_,56 @@
+             }
+         }
+     }
++    // cookie start - old blast protection explosion knockback
++
++    private static double getExplosionKnockback(LivingEntity entity, double velocity) {
++        if (!Config.INSTANCE.entities.oldBlastProtectionKnockbackBehavior) {
++            return velocity * (1.0 - entity.getAttributeValue(Attributes.EXPLOSION_KNOCKBACK_RESISTANCE));
++        }
++
++        // Old BLAST_PROTECTION logic
++        // BLAST_PROTECTION used ARMOR_SLOTS for slot types
++        // See 1.20.4's ProtectionEnchantment#getExplosionKnockbackAfterDampener,
++        // EnchantmentHelper#getEnchantmentLevel, Enchantment#getSlotItems,
++        // EnchantmentHelper#getItemEnchantmentLevel, Enchantments#BLAST_PROTECTION,
++        // these methods/fields for reference.
++        Map<net.minecraft.world.entity.EquipmentSlot, ItemStack> map = com.google.common.collect.Maps.newEnumMap(net.minecraft.world.entity.EquipmentSlot.class);
++
++        for (net.minecraft.world.entity.EquipmentSlot slot : net.minecraft.world.entity.EquipmentSlot.ARMOR_SLOTS) {
++            ItemStack itemStack = entity.getItemBySlot(slot);
++            if (!itemStack.isEmpty()) {
++                map.put(slot, itemStack);
++            }
++        }
++
++        Iterable<ItemStack> items = map.values();
++        int i = 0;
++
++        if (items == null) {
++            return 0;
++        }
++
++        for (ItemStack itemStack : items) {
++            int enchantmentLevel = net.minecraft.world.item.enchantment.EnchantmentHelper.getItemEnchantmentLevel(net.minecraft.world.item.enchantment.Enchantments.BLAST_PROTECTION, itemStack);
++            if (enchantmentLevel > i) {
++                i = enchantmentLevel;
++            }
++        }
++
++        if (i > 0) {
++            velocity *= Mth.clamp(1.0 - (double) i * 0.15, 0.0, 1.0);
++        }
++
++        return velocity;
++    }
++    // cookie end
+ 
+     private void interactWithBlocks(List<BlockPos> blocks) {
++        // cookie start
++        if (Config.INSTANCE.blocks.tnt.explosionNoBlockDamage) {
++            blocks.clear();
++        }
++        // cookie end
+         List<ServerExplosion.StackCollector> list = new ArrayList<>();
+         Util.shuffle(blocks, this.level.random);
+ 
+@@ -671,10 +_,7 @@
+         List<BlockPos> list = this.calculateExplodedPositions();
+         this.hurtEntities();
+         if (this.interactsWithBlocks()) {
+-            ProfilerFiller profilerFiller = Profiler.get();
+-            profilerFiller.push("explosion_blocks");
+             this.interactWithBlocks(list);
+-            profilerFiller.pop();
+         }
+ 
+         if (this.fire) {
+@@ -779,16 +_,16 @@
+             return this.getSeenFraction(vec3d, entity, this.directMappedBlockCache, this.mutablePos); // Paper - collision optimisations
+         }
+         CacheKey key = new CacheKey(this, entity.getBoundingBox());
+-        Float blockDensity = this.level.explosionDensityCache.get(key);
++        Float blockDensity = ServerRegions.getRegionizedTickData(entity.chunkPosition().x, entity.chunkPosition().z, this.level).explosionDensityCache.get(key); // cookie - Threaded Regions
+         if (blockDensity == null) {
+             blockDensity = this.getSeenFraction(vec3d, entity, this.directMappedBlockCache, this.mutablePos); // Paper - collision optimisations
+-            this.level.explosionDensityCache.put(key, blockDensity);
++            ServerRegions.getRegionizedTickData(entity.chunkPosition().x, entity.chunkPosition().z, this.level).explosionDensityCache.put(key, blockDensity); // cookie - Threaded Regions
+         }
+ 
+         return blockDensity;
+     }
+ 
+-    static class CacheKey {
++    public static class CacheKey { // cookie - public
+         private final Level world;
+         private final double posX, posY, posZ;
+         private final double minX, minY, minZ;

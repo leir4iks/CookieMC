@@ -1,0 +1,73 @@
+--- a/net/minecraft/world/entity/animal/Dolphin.java
++++ b/net/minecraft/world/entity/animal/Dolphin.java
+@@ -486,6 +_,10 @@
+     static class DolphinSwimToTreasureGoal extends Goal {
+         private final Dolphin dolphin;
+         private boolean stuck;
++        // cookie start - Asynchronous locator
++        @Nullable
++        private io.cookiemc.cookie.locate.AsyncLocator.LocateTask<?> asyncLocator$locateTask;
++        // cookie end - Asynchronous locator
+ 
+         DolphinSwimToTreasureGoal(Dolphin dolphin) {
+             this.dolphin = dolphin;
+@@ -505,6 +_,11 @@
+ 
+         @Override
+         public boolean canContinueToUse() {
++            // cookie start - Asynchronous locator
++            if (io.cookiemc.cookie.Config.INSTANCE.asyncLocator.enabled && this.asyncLocator$locateTask != null) {
++                return true;
++            }
++            // cookie end - Asynchronous locator
+             BlockPos blockPos = this.dolphin.treasurePos;
+             return blockPos != null
+                 && !BlockPos.containing(blockPos.getX(), this.dolphin.getY(), blockPos.getZ()).closerToCenterThan(this.dolphin.position(), 4.0)
+@@ -519,6 +_,22 @@
+                 this.stuck = false;
+                 this.dolphin.getNavigation().stop();
+                 BlockPos blockPos = this.dolphin.blockPosition();
++                // cookie start - Asynchronous locator
++                if (io.cookiemc.cookie.Config.INSTANCE.asyncLocator.enabled) {
++                    asyncLocator$locateTask = io.cookiemc.cookie.locate.AsyncLocator.locate(serverLevel, StructureTags.DOLPHIN_LOCATED, blockPos, 50, false)
++                        .thenOnServerThread(pos -> {
++                            asyncLocator$locateTask = null;
++                            if (pos != null) {
++                                this.dolphin.treasurePos = pos.getBlockPos();
++                                serverLevel.broadcastEntityEvent(this.dolphin, (byte) 38);
++                            } else {
++                                this.stuck = true;
++                            }
++                        });
++
++                    return;
++                }
++                // cookie end - Asynchronous locator
+                 BlockPos blockPos1 = serverLevel.findNearestMapStructure(StructureTags.DOLPHIN_LOCATED, blockPos, 50, false);
+                 if (blockPos1 != null) {
+                     this.dolphin.treasurePos = blockPos1;
+@@ -531,6 +_,12 @@
+ 
+         @Override
+         public void stop() {
++            // cookie start - Asynchronous locator
++            if (io.cookiemc.cookie.Config.INSTANCE.asyncLocator.enabled && this.asyncLocator$locateTask != null) {
++                this.asyncLocator$locateTask.cancel();
++                this.asyncLocator$locateTask = null;
++            }
++            // cookie end - Asynchronous locator
+             BlockPos blockPos = this.dolphin.treasurePos;
+             if (blockPos == null
+                 || BlockPos.containing(blockPos.getX(), this.dolphin.getY(), blockPos.getZ()).closerToCenterThan(this.dolphin.position(), 4.0)
+@@ -541,6 +_,11 @@
+ 
+         @Override
+         public void tick() {
++            // cookie start - Asynchronous locator
++            if (io.cookiemc.cookie.Config.INSTANCE.asyncLocator.enabled && this.asyncLocator$locateTask != null) {
++                return;
++            }
++            // cookie end - Asynchronous locator
+             if (this.dolphin.treasurePos != null) {
+                 Level level = this.dolphin.level();
+                 if (this.dolphin.closeToNextPos() || this.dolphin.getNavigation().isDone()) {

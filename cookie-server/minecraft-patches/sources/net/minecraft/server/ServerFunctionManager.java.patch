@@ -1,0 +1,40 @@
+--- a/net/minecraft/server/ServerFunctionManager.java
++++ b/net/minecraft/server/ServerFunctionManager.java
+@@ -14,8 +_,6 @@
+ import net.minecraft.commands.functions.CommandFunction;
+ import net.minecraft.commands.functions.InstantiatedFunction;
+ import net.minecraft.resources.ResourceLocation;
+-import net.minecraft.util.profiling.Profiler;
+-import net.minecraft.util.profiling.ProfilerFiller;
+ import org.slf4j.Logger;
+ 
+ public class ServerFunctionManager {
+@@ -50,19 +_,12 @@
+     }
+ 
+     private void executeTagFunctions(Collection<CommandFunction<CommandSourceStack>> functionObjects, ResourceLocation identifier) {
+-        Profiler.get().push(identifier::toString);
+-
+         for (CommandFunction<CommandSourceStack> commandFunction : functionObjects) {
+             this.execute(commandFunction, this.getGameLoopSender());
+         }
+-
+-        Profiler.get().pop();
+     }
+ 
+     public void execute(CommandFunction<CommandSourceStack> function, CommandSourceStack source) {
+-        ProfilerFiller profilerFiller = Profiler.get();
+-        profilerFiller.push(() -> "function " + function.id());
+-
+         try {
+             InstantiatedFunction<CommandSourceStack> instantiatedFunction = function.instantiate(null, this.getDispatcher());
+             Commands.executeCommandInContext(
+@@ -72,8 +_,6 @@
+         } catch (FunctionInstantiationException var9) {
+         } catch (Exception var10) {
+             LOGGER.warn("Failed to execute function {}", function.id(), var10);
+-        } finally {
+-            profilerFiller.pop();
+         }
+     }
+ 

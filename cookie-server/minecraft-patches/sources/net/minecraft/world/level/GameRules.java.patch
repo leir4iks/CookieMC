@@ -1,0 +1,56 @@
+--- a/net/minecraft/world/level/GameRules.java
++++ b/net/minecraft/world/level/GameRules.java
+@@ -21,6 +_,9 @@
+ import java.util.function.Supplier;
+ import java.util.stream.Stream;
+ import javax.annotation.Nullable;
++import io.cookiemc.cookie.Config;
++import io.cookiemc.cookie.region.ServerRegions;
++import io.cookiemc.cookie.util.TPSCalculator;
+ import net.minecraft.commands.CommandSourceStack;
+ import net.minecraft.commands.Commands;
+ import net.minecraft.nbt.CompoundTag;
+@@ -277,7 +_,7 @@
+     }
+ 
+     private GameRules(Map<GameRules.Key<?>, GameRules.Value<?>> rules, FeatureFlagSet enabledFeatures) {
+-        this.rules = rules;
++        this.rules = new it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap<>(rules); // cookie - optimized collection
+         this.enabledFeatures = enabledFeatures;
+ 
+         // Paper start - Perf: Use array for gamerule storage
+@@ -355,8 +_,32 @@
+     }
+ 
+     public int getInt(GameRules.Key<GameRules.IntegerValue> key) {
+-        return this.getRule(key).get();
+-    }
++    // cookie start
++        return lagCompensation(this.getRule(key).get(), key);
++    }
++
++    private ServerLevel level;
++
++    private int lagCompensation(int original, GameRules.Key<GameRules.IntegerValue> rule) {
++        ServerLevel level = getOrCacheLevel();
++        if (level == null) return original;
++        if (!Config.INSTANCE.lagCompensation.enabled || !Config.INSTANCE.lagCompensation.randomTickSpeedAcceleration) return original;
++        if (!(rule == GameRules.RULE_RANDOMTICKING)) return original;
++        return (int) (original * TPSCalculator.MAX_TPS / (float) ServerRegions.getTickData(level).tpsCalculator.getMostAccurateTPS()); // cookie - Threaded Regions
++    }
++
++    private ServerLevel getOrCacheLevel() {
++        if (level == null) {
++            for (final ServerLevel level : MinecraftServer.getServer().getAllLevels()) {
++                if (level.getGameRules() == this) {
++                    this.level = (level);
++                    break;
++                }
++            }
++        }
++        return level;
++    }
++    // cookie end
+ 
+     public static class BooleanValue extends GameRules.Value<GameRules.BooleanValue> {
+         private boolean value;

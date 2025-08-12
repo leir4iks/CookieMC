@@ -1,0 +1,100 @@
+--- a/net/minecraft/commands/Commands.java
++++ b/net/minecraft/commands/Commands.java
+@@ -17,12 +_,16 @@
+ import java.util.Map;
+ import java.util.Optional;
+ import java.util.Set;
++import java.util.concurrent.Executors;
+ import java.util.function.Consumer;
+ import java.util.function.Predicate;
+ import java.util.function.UnaryOperator;
+ import java.util.stream.Collectors;
+ import java.util.stream.Stream;
+ import javax.annotation.Nullable;
++import io.cookiemc.cookie.cookieBootstrap;
++import io.cookiemc.cookie.Config;
++import io.cookiemc.cookie.command.cookieCommands;
+ import net.minecraft.ChatFormatting;
+ import net.minecraft.SharedConstants;
+ import net.minecraft.Util;
+@@ -55,7 +_,6 @@
+ import net.minecraft.server.commands.DamageCommand;
+ import net.minecraft.server.commands.DataPackCommand;
+ import net.minecraft.server.commands.DeOpCommands;
+-import net.minecraft.server.commands.DebugCommand;
+ import net.minecraft.server.commands.DebugConfigCommand;
+ import net.minecraft.server.commands.DebugMobSpawningCommand;
+ import net.minecraft.server.commands.DebugPathCommand;
+@@ -132,7 +_,6 @@
+ import net.minecraft.server.commands.data.DataCommands;
+ import net.minecraft.server.level.ServerPlayer;
+ import net.minecraft.tags.TagKey;
+-import net.minecraft.util.profiling.Profiler;
+ import net.minecraft.util.profiling.jfr.JvmProfiler;
+ import net.minecraft.world.flag.FeatureFlagSet;
+ import net.minecraft.world.flag.FeatureFlags;
+@@ -164,7 +_,6 @@
+         DamageCommand.register(this.dispatcher, context);
+         DataCommands.register(this.dispatcher);
+         DataPackCommand.register(this.dispatcher);
+-        DebugCommand.register(this.dispatcher);
+         DefaultGameModeCommands.register(this.dispatcher);
+         DifficultyCommand.register(this.dispatcher);
+         EffectCommands.register(this.dispatcher, context);
+@@ -222,7 +_,7 @@
+             JfrCommand.register(this.dispatcher);
+         }
+ 
+-        if (org.purpurmc.purpur.PurpurConfig.registerMinecraftDebugCommands || SharedConstants.IS_RUNNING_IN_IDE) { // Purpur - register minecraft debug commands
++        if ((org.purpurmc.purpur.PurpurConfig.registerMinecraftDebugCommands || SharedConstants.IS_RUNNING_IN_IDE) && false) { // Purpur - register minecraft debug commands // cookie - moved
+             RaidCommand.register(this.dispatcher, context);
+             DebugPathCommand.register(this.dispatcher);
+             DebugMobSpawningCommand.register(this.dispatcher);
+@@ -299,6 +_,7 @@
+         }
+         // Paper end - Brigadier Command API
+         this.dispatcher.setConsumer(ExecutionCommandSource.resultConsumer());
++        cookieCommands.register(this.dispatcher, context); // cookie - register our brigadier commands
+     }
+ 
+     public static <S> ParseResults<S> mapSource(ParseResults<S> parseResults, UnaryOperator<S> mapper) {
+@@ -357,7 +_,6 @@
+     public void performCommand(ParseResults<CommandSourceStack> parseResults, String command, String label, boolean throwCommandError) {
+         // Paper end
+         CommandSourceStack commandSourceStack = parseResults.getContext().getSource();
+-        Profiler.get().push(() -> "/" + command);
+         ContextChain contextChain = this.finishParsing(parseResults, command, commandSourceStack, label); // CraftBukkit // Paper - Add UnknownCommandEvent
+ 
+         try {
+@@ -389,12 +_,10 @@
+             commandSourceStack.sendFailure(
+                 Component.translatable("command.failed").withStyle(style -> style.withHoverEvent(new HoverEvent.ShowText(mutableComponent)))
+             );
+-            if (SharedConstants.IS_RUNNING_IN_IDE) {
++            if (SharedConstants.IS_RUNNING_IN_IDE || cookieBootstrap.RUNNING_IN_IDE) { // cookie - ide
+                 commandSourceStack.sendFailure(Component.literal(Util.describeError(var12)));
+                 LOGGER.error("'/{}' threw an exception", command, var12);
+             }
+-        } finally {
+-            Profiler.get().pop();
+         }
+     }
+ 
+@@ -451,7 +_,7 @@
+             int max = Math.max(1, server.getGameRules().getInt(GameRules.RULE_MAX_COMMAND_CHAIN_LENGTH));
+             int _int = server.getGameRules().getInt(GameRules.RULE_MAX_COMMAND_FORK_COUNT);
+ 
+-            try (ExecutionContext<CommandSourceStack> executionContext1 = new ExecutionContext<>(max, _int, Profiler.get())) {
++            try (ExecutionContext<CommandSourceStack> executionContext1 = new ExecutionContext<>(max, _int)) {
+                 CURRENT_EXECUTION_CONTEXT.set(executionContext1);
+                 contextConsumer.accept(executionContext1);
+                 executionContext1.runCommandQueue();
+@@ -479,7 +_,7 @@
+     }
+ 
+     // Fixed pool, but with discard policy
+-    public static final java.util.concurrent.ExecutorService COMMAND_SENDING_POOL = new java.util.concurrent.ThreadPoolExecutor(
++    public static final java.util.concurrent.ExecutorService COMMAND_SENDING_POOL = Config.INSTANCE.virtualThreads.shouldReplaceCommandBuilderExecutor() ? Executors.newVirtualThreadPerTaskExecutor() : new java.util.concurrent.ThreadPoolExecutor( // cookie - virtual threads
+         2, 2, 0, java.util.concurrent.TimeUnit.MILLISECONDS,
+         new java.util.concurrent.LinkedBlockingQueue<>(),
+         new com.google.common.util.concurrent.ThreadFactoryBuilder()

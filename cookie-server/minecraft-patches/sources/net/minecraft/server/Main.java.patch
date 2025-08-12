@@ -1,0 +1,71 @@
+--- a/net/minecraft/server/Main.java
++++ b/net/minecraft/server/Main.java
+@@ -16,6 +_,10 @@
+ import java.util.Optional;
+ import java.util.function.BooleanSupplier;
+ import javax.annotation.Nullable;
++import io.cookiemc.cookie.cookieBootstrap;
++import io.cookiemc.cookie.Config;
++import io.papermc.paper.ServerBuildInfo;
++import io.papermc.paper.ServerBuildInfoImpl;
+ import joptsimple.OptionParser;
+ import joptsimple.OptionSet;
+ import joptsimple.OptionSpec;
+@@ -62,6 +_,23 @@
+ 
+ public class Main {
+     private static final Logger LOGGER = LogUtils.getLogger();
++    // cookie start - Clipboard
++
++    public static void main(String[] arguments) {
++        if (Boolean.getBoolean("minecraft.running-in-ide")) {
++            // running via IntelliJ run conf
++            LOGGER.info("Running Minecraft development server in IDE.");
++            cookieBootstrap.RUNNING_IN_IDE = true;
++        }
++        OptionSet optionSet = cookieBootstrap.bootstrap(arguments);
++        ServerBuildInfo info = ServerBuildInfo.buildInfo();
++        if (ServerBuildInfoImpl.IS_EXPERIMENTAL) {
++            LOGGER.warn("Running an experimental version of {}, please proceed with caution.", info.brandName());
++        }
++        Config.init(); // initialize config
++        main(optionSet);
++    }
++    // cookie end
+ 
+     @SuppressForbidden(
+         reason = "System.out needed before bootstrap"
+@@ -118,6 +_,7 @@
+             Bootstrap.bootStrap();
+             Bootstrap.validate();
+             Util.startTimerHackThread();
++            Config.Entities.DynamicActivationofBrain.post(); // cookie - DAB
+             Path path1 = Paths.get("server.properties");
+             DedicatedServerSettings dedicatedServerSettings = new DedicatedServerSettings(optionSet); // CraftBukkit - CLI argument support
+             dedicatedServerSettings.forceSave();
+@@ -146,7 +_,7 @@
+                 return;
+             }
+ 
+-            // Spigot start
++            /* // Spigot start // cookie start - move to bootup
+             boolean eulaAgreed = Boolean.getBoolean("com.mojang.eula.agree");
+             if (eulaAgreed) {
+                 LOGGER.error("You have used the Spigot command line EULA agreement flag.");
+@@ -157,7 +_,7 @@
+                 // Spigot end
+                 LOGGER.info("You need to agree to the EULA in order to run the server. Go to eula.txt for more info.");
+                 return;
+-            }
++            } */ // cookie end
+ 
+             // Paper start - Detect headless JRE
+             String awtException = io.papermc.paper.util.ServerEnvironment.awtDependencyCheck();
+@@ -385,6 +_,7 @@
+             */ // CraftBukkit end
+         } catch (Exception var42) {
+             LOGGER.error(LogUtils.FATAL_MARKER, "Failed to start the minecraft server", (Throwable)var42);
++            System.exit(1); // cookie - exit.
+         }
+     }
+ 

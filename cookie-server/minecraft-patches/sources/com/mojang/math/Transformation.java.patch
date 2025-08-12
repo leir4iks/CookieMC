@@ -1,0 +1,18 @@
+--- a/com/mojang/math/Transformation.java
++++ b/com/mojang/math/Transformation.java
+@@ -52,6 +_,7 @@
+         } else {
+             this.matrix = matrix;
+         }
++        ensureDecomposed(); // cookie
+     }
+ 
+     public Transformation(@Nullable Vector3f translation, @Nullable Quaternionf leftRotation, @Nullable Vector3f scale, @Nullable Quaternionf rightRotation) {
+@@ -61,6 +_,7 @@
+         this.scale = scale != null ? scale : new Vector3f(1.0F, 1.0F, 1.0F);
+         this.rightRotation = rightRotation != null ? rightRotation : new Quaternionf();
+         this.decomposed = true;
++        ensureDecomposed(); // cookie
+     }
+ 
+     public static Transformation identity() {

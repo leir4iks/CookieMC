@@ -1,0 +1,10 @@
+--- a/net/minecraft/server/commands/TickCommand.java
++++ b/net/minecraft/server/commands/TickCommand.java
+@@ -18,6 +_,7 @@
+     private static final String DEFAULT_TICKRATE = String.valueOf(20);
+ 
+     public static void register(CommandDispatcher<CommandSourceStack> dispatcher) {
++        if (true) return; // cookie - disable tick command, incompatible with this environment. // TODO - make this work.
+         dispatcher.register(
+             Commands.literal("tick")
+                 .requires(commandSourceStack -> commandSourceStack.hasPermission(3))

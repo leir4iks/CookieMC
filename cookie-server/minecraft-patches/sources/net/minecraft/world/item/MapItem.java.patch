@@ -1,0 +1,79 @@
+--- a/net/minecraft/world/item/MapItem.java
++++ b/net/minecraft/world/item/MapItem.java
+@@ -5,6 +_,7 @@
+ import com.google.common.collect.Multiset;
+ import com.google.common.collect.Multisets;
+ import javax.annotation.Nullable;
++import io.cookiemc.cookie.Config;
+ import net.minecraft.core.BlockPos;
+ import net.minecraft.core.Direction;
+ import net.minecraft.core.Holder;
+@@ -68,6 +_,7 @@
+     }
+ 
+     public void update(Level level, Entity viewer, MapItemSavedData data) {
++        synchronized (data) { // cookie - make map data thread-safe
+         if (level.dimension() == data.dimension && viewer instanceof Player) {
+             int i = 1 << data.scale;
+             int i1 = data.centerX;
+@@ -98,7 +_,7 @@
+                             int i10 = (i2 / i + i7 - 64) * i;
+                             Multiset<MapColor> multiset = LinkedHashMultiset.create();
+                             LevelChunk chunk = level.getChunkIfLoaded(SectionPos.blockToSectionCoord(i9), SectionPos.blockToSectionCoord(i10)); // Paper - Maps shouldn't load chunks
+-                            if (chunk != null && !chunk.isEmpty()) { // Paper - Maps shouldn't load chunks
++                            if (chunk != null && !chunk.isEmpty() && io.cookiemc.cookie.region.ServerRegions.isTickThreadFor(level, chunk.getPos())) { // Paper - Maps shouldn't load chunks // cookie - Threaded Regions
+                                 int i11 = 0;
+                                 double d1 = 0.0;
+                                 if (level.dimensionType().hasCeiling()) {
+@@ -180,6 +_,7 @@
+                 }
+             }
+         }
++        } // cookie - make map data thread-safe
+     }
+ 
+     private BlockState getCorrectStateForFluidBlock(Level level, BlockState state, BlockPos pos) {
+@@ -194,6 +_,7 @@
+     public static void renderBiomePreviewMap(ServerLevel serverLevel, ItemStack stack) {
+         MapItemSavedData savedData = getSavedData(stack, serverLevel);
+         if (savedData != null) {
++            synchronized (savedData) { // cookie - threadsafe
+             savedData.isExplorerMap = true; // Purpur - Explorer Map API
+             if (serverLevel.dimension() == savedData.dimension) {
+                 int i = 1 << savedData.scale;
+@@ -264,6 +_,7 @@
+                     }
+                 }
+             }
++            } // cookie - threadsafe
+         }
+     }
+ 
+@@ -271,13 +_,26 @@
+     public void inventoryTick(ItemStack stack, ServerLevel level, Entity entity, @Nullable EquipmentSlot slot) {
+         MapItemSavedData savedData = getSavedData(stack, level);
+         if (savedData != null) {
++            synchronized (savedData) { // cookie - threadsafe
+             if (entity instanceof Player player) {
+                 savedData.tickCarriedBy(player, stack);
+             }
+ 
+-            if (!savedData.locked && slot != null && slot.getType() == EquipmentSlot.Type.HAND) {
++            // cookie start - don't update maps if t hey don't have the CraftMapRenderer in the render list
++            boolean shouldUpdateMap = !savedData.locked && slot != null && slot.getType() == EquipmentSlot.Type.HAND;
++            if (Config.INSTANCE.skipMapItemDataUpdates) {
++                    for (org.bukkit.map.MapRenderer mapRenderer : savedData.mapView.getRenderers()) {
++                        if (mapRenderer.getClass() == org.bukkit.craftbukkit.map.CraftMapRenderer.class) {
++                            shouldUpdateMap = true;
++                            break;
++                        }
++                    }
++            }
++            if (shouldUpdateMap) {
++            // cookie end
+                 this.update(level, entity, savedData);
+             }
++            } // cookie - threadsafe
+         }
+     }
+ 

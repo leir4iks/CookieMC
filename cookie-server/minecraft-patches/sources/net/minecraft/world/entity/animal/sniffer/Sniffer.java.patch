@@ -1,0 +1,24 @@
+--- a/net/minecraft/world/entity/animal/sniffer/Sniffer.java
++++ b/net/minecraft/world/entity/animal/sniffer/Sniffer.java
+@@ -29,8 +_,6 @@
+ import net.minecraft.tags.ItemTags;
+ import net.minecraft.util.ByIdMap;
+ import net.minecraft.util.Mth;
+-import net.minecraft.util.profiling.Profiler;
+-import net.minecraft.util.profiling.ProfilerFiller;
+ import net.minecraft.world.InteractionHand;
+ import net.minecraft.world.InteractionResult;
+ import net.minecraft.world.damagesource.DamageSource;
+@@ -486,12 +_,8 @@
+ 
+     @Override
+     protected void customServerAiStep(ServerLevel level) {
+-        ProfilerFiller profilerFiller = Profiler.get();
+-        profilerFiller.push("snifferBrain");
+         this.getBrain().tick(level, this);
+-        profilerFiller.popPush("snifferActivityUpdate");
+         SnifferAi.updateActivity(this);
+-        profilerFiller.pop();
+         super.customServerAiStep(level);
+     }
+ 

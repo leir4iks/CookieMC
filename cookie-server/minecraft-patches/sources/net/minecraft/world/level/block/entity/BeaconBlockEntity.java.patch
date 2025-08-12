@@ -1,0 +1,103 @@
+--- a/net/minecraft/world/level/block/entity/BeaconBlockEntity.java
++++ b/net/minecraft/world/level/block/entity/BeaconBlockEntity.java
+@@ -40,6 +_,7 @@
+ import net.minecraft.world.inventory.BeaconMenu;
+ import net.minecraft.world.inventory.ContainerData;
+ import net.minecraft.world.inventory.ContainerLevelAccess;
++import net.minecraft.world.level.ChunkPos;
+ import net.minecraft.world.level.Level;
+ import net.minecraft.world.level.block.BeaconBeamBlock;
+ import net.minecraft.world.level.block.Blocks;
+@@ -172,6 +_,8 @@
+         return VALID_EFFECTS.contains(effect) ? effect : null;
+     }
+ 
++    public boolean justLoadedAndPreviouslyActive; // cookie - consider beacon previously active for first tick to skip activate event/sound
++
+     public BeaconBlockEntity(BlockPos pos, BlockState blockState) {
+         super(BlockEntityType.BEACON, pos, blockState);
+     }
+@@ -226,7 +_,7 @@
+         }
+ 
+         int i = blockEntity.levels; final int originalLevels = i; // Paper - OBFHELPER
+-        if (level.getGameTime() % 80L == 0L) {
++        if (level.getRedstoneGameTime() % 80L == 0L) { // cookie - Threaded Regions
+             if (!blockEntity.beamSections.isEmpty()) {
+                 blockEntity.levels = updateBase(level, x, y, z);
+             }
+@@ -237,10 +_,15 @@
+             }
+         }
+         // Paper start - beacon activation/deactivation events
+-        if (originalLevels <= 0 && blockEntity.levels > 0) {
++        // cookie start
++        final boolean prevActive = originalLevels > 0 && (!blockEntity.beamSections.isEmpty() || (blockEntity.justLoadedAndPreviouslyActive && !blockEntity.checkingBeamSections.isEmpty()));
++        blockEntity.justLoadedAndPreviouslyActive = false;
++        final boolean newActive = blockEntity.levels > 0 && !blockEntity.checkingBeamSections.isEmpty();
++        if (!prevActive && newActive) {
++            // cookie end
+             org.bukkit.block.Block block = org.bukkit.craftbukkit.block.CraftBlock.at(level, pos);
+             new io.papermc.paper.event.block.BeaconActivatedEvent(block).callEvent();
+-        } else if (originalLevels > 0 && blockEntity.levels <= 0) {
++        } else if (prevActive && !newActive) { // cookie
+             org.bukkit.block.Block block = org.bukkit.craftbukkit.block.CraftBlock.at(level, pos);
+             new io.papermc.paper.event.block.BeaconDeactivatedEvent(block).callEvent();
+         }
+@@ -248,10 +_,10 @@
+ 
+         if (blockEntity.lastCheckY >= height) {
+             blockEntity.lastCheckY = level.getMinY() - 1;
+-            boolean flag = i > 0;
++            boolean flag = prevActive; // cookie - Fix MC-183981
+             blockEntity.beamSections = blockEntity.checkingBeamSections;
+             if (!level.isClientSide) {
+-                boolean flag1 = blockEntity.levels > 0;
++                boolean flag1 = newActive; // cookie - Fix MC-183981
+                 if (!flag && flag1) {
+                     playSound(level, pos, SoundEvents.BEACON_ACTIVATE);
+ 
+@@ -295,10 +_,6 @@
+ 
+     @Override
+     public void setRemoved() {
+-        // Paper start - beacon activation/deactivation events
+-        org.bukkit.block.Block block = org.bukkit.craftbukkit.block.CraftBlock.at(level, worldPosition);
+-        new io.papermc.paper.event.block.BeaconDeactivatedEvent(block).callEvent();
+-        // Paper end - beacon activation/deactivation events
+         // Paper start - fix MC-153086
+         if (this.levels > 0 && !this.beamSections.isEmpty()) {
+         playSound(this.level, this.worldPosition, SoundEvents.BEACON_DEACTIVATE);
+@@ -361,7 +_,7 @@
+             list = level.getEntitiesOfClass(Player.class, aabb); // Diff from applyEffect
+         } else {
+             list = new java.util.ArrayList<>();
+-            for (final Player player : level.players()) {
++            for (final Player player : level.getLocalPlayers(new ChunkPos(pos))) { // cookie - Threaded Regions
+                 if (!net.minecraft.world.entity.EntitySelector.NO_SPECTATORS.test(player)) continue;
+                 if (player.getBoundingBox().intersects(aabb)) {
+                     list.add(player);
+@@ -426,6 +_,7 @@
+         this.primaryPower = loadEffect(tag, "primary_effect");
+         this.secondaryPower = loadEffect(tag, "secondary_effect");
+         this.levels = tag.getIntOr("Levels", 0); // CraftBukkit - SPIGOT-5053, use where available
++        this.justLoadedAndPreviouslyActive = this.levels > 0; // cookie
+         this.name = parseCustomNameSafe(tag.get("CustomName"), registries);
+         this.lockKey = LockCode.fromTag(tag, registries);
+         this.effectRange = tag.getDoubleOr(PAPER_RANGE_TAG, -1); // Paper - Custom beacon ranges
+@@ -497,4 +_,15 @@
+         super.setLevel(level);
+         this.lastCheckY = level.getMinY() - 1;
+     }
++
++    // cookie start - BeaconDeactivatedEvent
++    @Override
++    public void preRemoveSideEffects(BlockPos pos, BlockState state) {
++        BeaconBlockEntity beacon = this;
++        if (true /*beacon.levels > 0 && !beacon.getBeamSections().isEmpty()*/) { // Calling deactive everytime on remove to keep consistent with Paper's behavior
++            org.bukkit.block.Block block = org.bukkit.craftbukkit.block.CraftBlock.at(this.level, pos);
++            new io.papermc.paper.event.block.BeaconDeactivatedEvent(block).callEvent();
++        }
++    }
++    // cookie end
+ }

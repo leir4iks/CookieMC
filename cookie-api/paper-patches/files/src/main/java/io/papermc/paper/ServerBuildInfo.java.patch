@@ -1,0 +1,15 @@
+--- a/src/main/java/io/papermc/paper/ServerBuildInfo.java
++++ b/src/main/java/io/papermc/paper/ServerBuildInfo.java
+@@ -25,6 +_,12 @@
+      */
+     Key BRAND_PURPUR_ID = Key.key("purpurmc", "purpur");
+     // Purpur end
++    // cookie start
++    /**
++     * The brand id for cookie.
++     */
++    Key BRAND_cookie_ID = Key.key("cookiemc", "cookie");
++    // cookie end
+     /**
+      * Gets the {@code ServerBuildInfo}.
+      *

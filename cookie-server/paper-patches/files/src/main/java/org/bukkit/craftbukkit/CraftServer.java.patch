@@ -1,0 +1,170 @@
+--- a/src/main/java/org/bukkit/craftbukkit/CraftServer.java
++++ b/src/main/java/org/bukkit/craftbukkit/CraftServer.java
+@@ -12,6 +_,14 @@
+ import com.mojang.brigadier.exceptions.CommandSyntaxException;
+ import com.mojang.serialization.Dynamic;
+ import com.mojang.serialization.Lifecycle;
++import io.cookiemc.cookie.Config;
++import io.cookiemc.cookie.ThreadedBukkitServer;
++import io.cookiemc.cookie.region.ServerRegions;
++import io.cookiemc.cookie.scheduler.cookiePerWorldScheduler;
++import io.cookiemc.cookie.scheduler.cookieRegionScheduler;
++import io.cookiemc.cookie.scheduler.TickScheduler;
++import io.cookiemc.cookie.server.MultiWatchdogThread;
++import io.cookiemc.cookie.server.ThreadedServer;
+ import io.papermc.paper.configuration.PaperServerConfiguration;
+ import io.papermc.paper.configuration.ServerConfiguration;
+ import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
+@@ -37,6 +_,7 @@
+ import java.util.Optional;
+ import java.util.Set;
+ import java.util.UUID;
++import java.util.concurrent.ConcurrentHashMap;
+ import java.util.function.Consumer;
+ import java.util.logging.Level;
+ import java.util.logging.Logger;
+@@ -286,7 +_,7 @@
+     private final StructureManager structureManager;
+     final DedicatedServer console;
+     private final DedicatedPlayerList playerList;
+-    private final Map<String, World> worlds = new LinkedHashMap<>();
++    private final Map<String, World> worlds = new ConcurrentHashMap<>(); // cookie - concurrent
+     private YamlConfiguration configuration;
+     private YamlConfiguration commandsConfiguration;
+     private final Yaml yaml = new Yaml(new SafeConstructor(new LoaderOptions()));
+@@ -318,7 +_,7 @@
+     private final ServerConfiguration serverConfig = new PaperServerConfiguration();
+ 
+     // Paper start - Folia region threading API
+-    private final io.papermc.paper.threadedregions.scheduler.FallbackRegionScheduler regionizedScheduler = new io.papermc.paper.threadedregions.scheduler.FallbackRegionScheduler();
++    public final io.papermc.paper.threadedregions.scheduler.RegionScheduler regionizedScheduler = Config.INSTANCE.ticking.enableThreadedRegionizing ? new cookieRegionScheduler() : new cookiePerWorldScheduler(); // cookie - support folia regionzed threading
+     private final io.papermc.paper.threadedregions.scheduler.FoliaAsyncScheduler asyncScheduler = new io.papermc.paper.threadedregions.scheduler.FoliaAsyncScheduler();
+     private final io.papermc.paper.threadedregions.scheduler.FoliaGlobalRegionScheduler globalRegionScheduler = new io.papermc.paper.threadedregions.scheduler.FoliaGlobalRegionScheduler();
+ 
+@@ -339,14 +_,14 @@
+ 
+     @Override
+     public final boolean isOwnedByCurrentRegion(World world, io.papermc.paper.math.Position position) {
+-        return ca.spottedleaf.moonrise.common.util.TickThread.isTickThreadFor(
++        return io.cookiemc.cookie.region.ServerRegions.isTickThreadFor( // cookie - Threaded Regions
+             ((CraftWorld) world).getHandle(), position.blockX() >> 4, position.blockZ() >> 4
+         );
+     }
+ 
+     @Override
+     public final boolean isOwnedByCurrentRegion(World world, io.papermc.paper.math.Position position, int squareRadiusChunks) {
+-        return ca.spottedleaf.moonrise.common.util.TickThread.isTickThreadFor(
++        return io.cookiemc.cookie.region.ServerRegions.isTickThreadFor( // cookie - Threaded Regions
+             ((CraftWorld) world).getHandle(), position.blockX() >> 4, position.blockZ() >> 4, squareRadiusChunks
+         );
+     }
+@@ -354,7 +_,7 @@
+     @Override
+     public final boolean isOwnedByCurrentRegion(Location location) {
+         World world = location.getWorld();
+-        return ca.spottedleaf.moonrise.common.util.TickThread.isTickThreadFor(
++        return io.cookiemc.cookie.region.ServerRegions.isTickThreadFor( // cookie - Threaded Regions
+             ((CraftWorld) world).getHandle(), location.getBlockX() >> 4, location.getBlockZ() >> 4
+         );
+     }
+@@ -362,35 +_,35 @@
+     @Override
+     public final boolean isOwnedByCurrentRegion(Location location, int squareRadiusChunks) {
+         World world = location.getWorld();
+-        return ca.spottedleaf.moonrise.common.util.TickThread.isTickThreadFor(
++        return io.cookiemc.cookie.region.ServerRegions.isTickThreadFor( // cookie - Threaded Regions
+             ((CraftWorld) world).getHandle(), location.getBlockX() >> 4, location.getBlockZ() >> 4, squareRadiusChunks
+         );
+     }
+ 
+     @Override
+     public final boolean isOwnedByCurrentRegion(World world, int chunkX, int chunkZ) {
+-        return ca.spottedleaf.moonrise.common.util.TickThread.isTickThreadFor(
++        return io.cookiemc.cookie.region.ServerRegions.isTickThreadFor( // cookie - Threaded Regions
+             ((CraftWorld) world).getHandle(), chunkX, chunkZ
+         );
+     }
+ 
+     @Override
+     public final boolean isOwnedByCurrentRegion(World world, int chunkX, int chunkZ, int squareRadiusChunks) {
+-        return ca.spottedleaf.moonrise.common.util.TickThread.isTickThreadFor(
++        return io.cookiemc.cookie.region.ServerRegions.isTickThreadFor( // cookie - Threaded Regions
+             ((CraftWorld) world).getHandle(), chunkX, chunkZ, squareRadiusChunks
+         );
+     }
+ 
+     @Override
+     public final boolean isOwnedByCurrentRegion(World world, int minChunkX, int minChunkZ, int maxChunkX, int maxChunkZ) {
+-        return ca.spottedleaf.moonrise.common.util.TickThread.isTickThreadFor(
++        return io.cookiemc.cookie.region.ServerRegions.isTickThreadFor( // cookie - Threaded Regions
+             ((CraftWorld) world).getHandle(), minChunkX, minChunkZ, maxChunkX, maxChunkZ
+         );
+     }
+ 
+     @Override
+     public final boolean isOwnedByCurrentRegion(Entity entity) {
+-        return ca.spottedleaf.moonrise.common.util.TickThread.isTickThreadFor(((org.bukkit.craftbukkit.entity.CraftEntity) entity).getHandleRaw());
++        return io.cookiemc.cookie.region.ServerRegions.isTickThreadFor(((org.bukkit.craftbukkit.entity.CraftEntity) entity).getHandleRaw()); // cookie - Threaded Regions
+     }
+ 
+     @Override
+@@ -858,6 +_,19 @@
+     public ServerTickManager getServerTickManager() {
+         return this.serverTickManager;
+     }
++    // cookie start - Threaded Server
++
++    @Override
++    public @NotNull ThreadedBukkitServer getThreadedServer() {
++        return this.console.threadedServer();
++    }
++
++    // threaded regions
++    @Override
++    public boolean isRegionized() {
++        return this.console.isRegionized();
++    }
++    // cookie end
+ 
+     @Override
+     public ResourcePack getServerResourcePack() {
+@@ -976,7 +_,7 @@
+ 
+     @Override
+     public List<World> getWorlds() {
+-        return new ArrayList<World>(this.worlds.values());
++        return new it.unimi.dsi.fastutil.objects.ObjectArrayList<World>(this.worlds.values()); // cookie - faster list creation
+     }
+ 
+     @Override
+@@ -1053,7 +_,7 @@
+             throw new IllegalStateException(org.bukkit.command.defaults.ReloadCommand.RELOADING_DISABLED_MESSAGE);
+         }
+         // Paper end - lifecycle events
+-        org.spigotmc.WatchdogThread.hasStarted = false; // Paper - Disable watchdog early timeout on reload
++        MultiWatchdogThread.hasStarted = false; // Paper - Disable watchdog early timeout on reload // cookie - rewrite watchdog
+         this.reloadCount++;
+         this.configuration = YamlConfiguration.loadConfiguration(this.getConfigFile());
+         this.commandsConfiguration = YamlConfiguration.loadConfiguration(this.getCommandsConfigFile());
+@@ -1159,7 +_,7 @@
+         this.syncCommands(); // Refresh commands after event
+         // Paper end - brigadier command API
+         new ServerLoadEvent(ServerLoadEvent.LoadType.RELOAD).callEvent();
+-        org.spigotmc.WatchdogThread.hasStarted = true; // Paper - Disable watchdog early timeout on reload
++        MultiWatchdogThread.hasStarted = true; // Paper - Disable watchdog early timeout on reload // cookie - rewrite watchdog
+     }
+ 
+     // Paper start - Wait for Async Tasks during shutdown
+@@ -3256,7 +_,11 @@
+ 
+     @Override
+     public int getCurrentTick() {
+-        return net.minecraft.server.MinecraftServer.currentTick;
++        // cookie start - Threaded Server
++        ServerRegions.WorldTickData tickData = ServerRegions.pullLocalTickDataSoft();
++        if (tickData == null) return net.minecraft.server.MinecraftServer.currentTick;
++        else return (int) tickData.peekTick();
++        // cookie end
+     }
+ 
+     @Override

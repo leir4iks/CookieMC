@@ -1,0 +1,19 @@
+--- a/src/main/java/co/aikar/timings/TimingHandler.java
++++ b/src/main/java/co/aikar/timings/TimingHandler.java
+@@ -28,6 +_,7 @@
+ 
+ import java.util.ArrayDeque;
+ import java.util.Deque;
++import java.util.concurrent.ConcurrentLinkedDeque;
+ import java.util.concurrent.atomic.AtomicInteger;
+ import java.util.logging.Level;
+ import java.util.logging.Logger;
+@@ -39,7 +_,7 @@
+ class TimingHandler implements Timing {
+ 
+     private static AtomicInteger idPool = new AtomicInteger(1);
+-    private static Deque<TimingHandler> TIMING_STACK = new ArrayDeque<>();
++    private static Deque<TimingHandler> TIMING_STACK = new ConcurrentLinkedDeque<>(); // cookie - use concurrent Deque
+     final int id = idPool.getAndIncrement();
+ 
+     final TimingIdentifier identifier;

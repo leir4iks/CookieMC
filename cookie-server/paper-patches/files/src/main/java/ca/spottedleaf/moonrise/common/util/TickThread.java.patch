@@ -1,0 +1,25 @@
+--- a/src/main/java/ca/spottedleaf/moonrise/common/util/TickThread.java
++++ b/src/main/java/ca/spottedleaf/moonrise/common/util/TickThread.java
+@@ -97,6 +_,13 @@
+ 
+     private static final AtomicInteger ID_GENERATOR = new AtomicInteger();
+ 
++    // cookie start
++    public TickThread(final Runnable runnable) {
++        super(runnable);
++        id = ID_GENERATOR.incrementAndGet();
++    }
++
++    // cookie end
+     public TickThread(final String name) {
+         this(null, name);
+     }
+@@ -109,7 +_,7 @@
+         this(group, run, name, ID_GENERATOR.incrementAndGet());
+     }
+ 
+-    private TickThread(final ThreadGroup group, final Runnable run, final String name, final int id) {
++    public TickThread(final ThreadGroup group, final Runnable run, final String name, final int id) { // cookie - private -> public
+         super(group, run, name);
+         this.id = id;
+     }

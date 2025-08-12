@@ -1,100 +1,77 @@
-Paper [![Paper Build Status](https://img.shields.io/github/actions/workflow/status/PaperMC/Paper/build.yml?branch=main)](https://github.com/PaperMC/Paper/actions)
-[![Discord](https://img.shields.io/discord/289587909051416579.svg?label=&logo=discord&logoColor=ffffff&color=7389D8&labelColor=6A7EC2)](https://discord.gg/papermc)
-[![GitHub Sponsors](https://img.shields.io/github/sponsors/papermc?label=GitHub%20Sponsors)](https://github.com/sponsors/PaperMC)
-[![Open Collective](https://img.shields.io/opencollective/all/papermc?label=OpenCollective%20Sponsors)](https://opencollective.com/papermc)
-===========
+# cookie
 
-The most widely used, high-performance Minecraft server that aims to fix gameplay and mechanics inconsistencies.
+[![GitHub License](https://img.shields.io/github/license/Craftcookiemc/cookie)](https://github.com/Craftcookiemc/cookie/blob/master/LICENSE)
+[![GitHub contributors](https://img.shields.io/github/contributors/Craftcookiemc/cookie)](https://github.com/Craftcookiemc/cookie/graphs/contributors)
+[![Discord](https://img.shields.io/discord/1168986665038127205?color=5865F2)](https://cookiemc.io/discord)
 
+cookie is a Minecraft server software introducing a fully multithreaded architecture to the dedicated server through a rewritten
+chunk system executor, parallel world ticking and regionization. cookie is an attempt at a fully multithreaded Minecraft
+dedicated server without breaking plugin compatibility, and creating a more scalable environment for more modern CPUs.
 
-**Support and Project Discussion:**
-- [Our forums](https://forums.papermc.io/) or [Discord](https://discord.gg/papermc)
+**cookie is not a simple drop-in replacement for Paper or Purpur. It is a fundamentally different architecture that requires
+some configuration and understanding before use.**
 
-How To (Server Admins)
-------
-Paperclip is a jar file that you can download and run just like a normal jar file.
+cookie' config(`cookie-server.yml`), is aimed for vanilla parity and stability
+rather than raw performance, so it needs to be manually configured to do anything to benefit your server.
+cookie also is very hardware dependent and is not friendly with shared hosting due to its rewritten chunk system executor being much more aggressive than other
+forks(however it does provide much higher performance). There is no recommended hardware for cookie *yet*, but a good amount of
+threads is highly recommended for cookie to be effective like at least 10 threads (5 dedicated cores = 5x2).
 
-Download Paper from our [downloads page](https://papermc.io/downloads/paper).
+Please also test prior to putting on a production server to see if your plugins are compatible, as cookie' threaded nature makes a plugin compatibility layer. If you find a plugin that is incompatible, please tell us in our [Discord server](https://cookiemc.io/discord).
 
-Run the Paperclip jar directly from your server. Just like old times
+cookie contains patches from [Leaf](https://github.com/Winds-Studio/Leaf) to assist in single threaded performance. This
+does ***not*** mean cookie is "better" than Leaf or worse than it. cookie and Leaf are very different pieces of software
+tailored to very specific environments with very different architectures.
 
-* Documentation on using Paper: [docs.papermc.io](https://docs.papermc.io)
-* For a sneak peek at upcoming features, [see here](https://github.com/PaperMC/Paper/projects)
+Useful links:
 
-How To (Plugin Developers)
-------
-* See our API [here](paper-api)
-* See upcoming, pending, and recently added API [here](https://github.com/orgs/PaperMC/projects/2/views/4)
-* Paper API javadocs here: [papermc.io/javadocs](https://papermc.io/javadocs/)
-#### Repository (for paper-api)
-##### Maven
+- [Website](https://cookiemc.io)
+- [Documentation](https://docs.cookiemc.io)
+- [Discord](https://cookiemc.io/discord)
 
-```xml
-<repository>
-    <id>papermc</id>
-    <url>https://repo.papermc.io/repository/maven-public/</url>
-</repository>
+## Running cookie
+
+### Requirements
+
+- Java 22 or higher
+
+### Obtaining Server Jar
+
+You can download the server jar from the [downloads page](https://cookiemc.io/downloads).
+
+## Building cookie
+
+### Requirements
+
+- Java 22 or higher
+- Git (with configured email and name)
+- Gradle
+
+### Scripts
+
+```bash
+> ./gradlew applyAllPatches              # apply all patches
+> ./gradlew createMojmapPaperclipJar     # build the server jar
+> ./gradlew runDevServer                 # run dev server
+> ./rebuildPatches                       # custom script to generate patches for modified directories
 ```
 
-```xml
-<dependency>
-    <groupId>io.papermc.paper</groupId>
-    <artifactId>paper-api</artifactId>
-    <version>1.21.8-R0.1-SNAPSHOT</version>
-    <scope>provided</scope>
-</dependency>
-```
-##### Gradle
-```kotlin
-repositories {
-    maven {
-        url = uri("https://repo.papermc.io/repository/maven-public/")
-    }
-}
+## REST API
 
-dependencies {
-    compileOnly("io.papermc.paper:paper-api:1.21.8-R0.1-SNAPSHOT")
-}
+cookie has a REST API that can be used to get builds and check for new versions.
 
-java {
-    toolchain.languageVersion.set(JavaLanguageVersion.of(21))
-}
-```
+It is temporarily documented in the [Website Repository](https://github.com/Craftcookiemc/Website/blob/main/docs/API.md). Soon it will be moved over to the documentation website.
 
-How To (Compiling Jar From Source)
-------
-To compile Paper, you need JDK 21 and an internet connection.
+## Support
 
-Clone this repo, run `./gradlew applyPatches`, then `./gradlew createMojmapBundlerJar` from your terminal. You can find the compiled jar in the `paper-server/build/libs` directory.
+You can help cookiemc grow by:
 
-To get a full list of tasks, run `./gradlew tasks`.
+- Supporting us on [Ko-fi](https://ko-fi.com/dueris)
+- Starring the project on GitHub
+- Contributing code or documentation
 
-How To (Pull Request)
-------
-See [Contributing](CONTRIBUTING.md)
+Your support helps keep this project active and improving!
 
-Old Versions (1.21.3 and below)
-------
-For branches of versions 1.8-1.21.3, please see our [archive repository](https://github.com/PaperMC/Paper-archive).
+## License
 
-Support Us
-------
-First of all, thank you for considering helping out, we really appreciate that!
-
-PaperMC has various recurring expenses, mostly related to infrastructure. Paper uses [Open Collective](https://opencollective.com/) via the [Open Source Collective fiscal host](https://opencollective.com/opensource) to manage expenses. Open Collective allows us to be extremely transparent, so you can always see how your donations are used. You can read more about financially supporting PaperMC [on our website](https://papermc.io/sponsors).
-
-You can find our collective [here](https://opencollective.com/papermc), or you can donate via GitHub Sponsors [here](https://github.com/sponsors/PaperMC), which will also go towards the collective.
-
-Special Thanks To:
--------------
-
-[![YourKit-Logo](https://www.yourkit.com/images/yklogo.png)](https://www.yourkit.com/)
-
-[YourKit](https://www.yourkit.com/), makers of the outstanding java profiler, support open source projects of all kinds with their full featured [Java](https://www.yourkit.com/java/profiler) and [.NET](https://www.yourkit.com/.net/profiler) application profilers. We thank them for granting Paper an OSS license so that we can make our software the best it can be.
-
-[<img src="https://user-images.githubusercontent.com/21148213/121807008-8ffc6700-cc52-11eb-96a7-2f6f260f8fda.png" alt="" width="150">](https://www.jetbrains.com)
-
-[JetBrains](https://www.jetbrains.com/), creators of the IntelliJ IDEA, supports Paper with one of their [Open Source Licenses](https://www.jetbrains.com/opensource/). IntelliJ IDEA is the recommended IDE for working with Paper, and most of the Paper team uses it.
-
-All our sponsors!  
-[![Sponsor Image](https://raw.githubusercontent.com/PaperMC/papermc.io/data/sponsors.png)](https://papermc.io/sponsors)
+cookie is licensed under the [GNU AGPLv3](https://github.com/Craftcookiemc/cookie/blob/master/LICENSE). <img align="right" width="100" src="https://upload.wikimedia.org/wikipedia/commons/thumb/0/06/AGPLv3_Logo.svg/1200px-AGPLv3_Logo.svg.png" alt="AGPLv3 Logo">

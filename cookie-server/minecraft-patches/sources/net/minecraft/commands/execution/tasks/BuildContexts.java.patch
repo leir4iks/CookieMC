@@ -1,0 +1,22 @@
+--- a/net/minecraft/commands/execution/tasks/BuildContexts.java
++++ b/net/minecraft/commands/execution/tasks/BuildContexts.java
+@@ -42,9 +_,6 @@
+         ChainModifiers chainModifiers1 = chainModifiers;
+         List<T> list = sources;
+         if (contextChain.getStage() != Stage.EXECUTE) {
+-            context.profiler().push(() -> "prepare " + this.commandInput);
+-
+-            try {
+                 for (int forkLimit = context.forkLimit(); contextChain.getStage() != Stage.EXECUTE; contextChain = contextChain.nextStage()) {
+                     CommandContext<T> topContext = contextChain.getTopContext();
+                     if (topContext.isForked()) {
+@@ -84,9 +_,6 @@
+                         list = list1;
+                     }
+                 }
+-            } finally {
+-                context.profiler().pop();
+-            }
+         }
+ 
+         if (list.isEmpty()) {

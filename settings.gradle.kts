@@ -1,3 +1,5 @@
+import java.util.Locale
+
 pluginManagement {
     repositories {
         gradlePluginPortal()
@@ -6,75 +8,34 @@ pluginManagement {
 }
 
 plugins {
-    id("org.gradle.toolchains.foojay-resolver-convention") version "1.0.0"
+    id("org.gradle.toolchains.foojay-resolver-convention") version "0.8.0"
 }
 
 if (!file(".git").exists()) {
     val errorText = """
         
         =====================[ ERROR ]=====================
-         The Paper project directory is not a properly cloned Git repository.
+         The cookie project directory is not a properly cloned Git repository.
          
-         In order to build Paper from source you must clone
-         the Paper repository using Git, not download a code
+         In order to build cookie from source you must clone
+         the cookie repository using Git, not download a code
          zip from GitHub.
          
-         Built Paper jars are available for download at
-         https://papermc.io/downloads/paper
+         Built cookie jars are available for download at
+         https://cookiemc.io/downloads
          
-         See https://github.com/PaperMC/Paper/blob/main/CONTRIBUTING.md
-         for further information on building and modifying Paper.
+         See https://github.com/Craftcookiemc/cookie/blob/HEAD/CONTRIBUTING.md
+         for further information on building and modifying cookie.
         ===================================================
     """.trimIndent()
     error(errorText)
 }
 
-rootProject.name = "paper"
+enableFeaturePreview("TYPESAFE_PROJECT_ACCESSORS")
 
-for (name in listOf("paper-api", "paper-server")) {
-    include(name)
-    file(name).mkdirs()
-}
-
-optionalInclude("test-plugin")
-optionalInclude("paper-generator")
-
-fun optionalInclude(name: String, op: (ProjectDescriptor.() -> Unit)? = null) {
-    val settingsFile = file("$name.settings.gradle.kts")
-    if (settingsFile.exists()) {
-        apply(from = settingsFile)
-        findProject(":$name")?.let { op?.invoke(it) }
-    } else {
-        settingsFile.writeText(
-            """
-            // Uncomment to enable the '$name' project
-            // include(":$name")
-
-            """.trimIndent()
-        )
-    }
-}
-
-if (providers.gradleProperty("paperBuildCacheEnabled").orNull.toBoolean()) {
-    val buildCacheUsername = providers.gradleProperty("paperBuildCacheUsername").orElse("").get()
-    val buildCachePassword = providers.gradleProperty("paperBuildCachePassword").orElse("").get()
-    if (buildCacheUsername.isBlank() || buildCachePassword.isBlank()) {
-        println("The Paper remote build cache is enabled, but no credentials were provided. Remote build cache will not be used.")
-    } else {
-        val buildCacheUrl = providers.gradleProperty("paperBuildCacheUrl")
-            .orElse("https://gradle-build-cache.papermc.io/")
-            .get()
-        val buildCachePush = providers.gradleProperty("paperBuildCachePush").orNull?.toBoolean()
-            ?: System.getProperty("CI").toBoolean()
-        buildCache {
-            remote<HttpBuildCache> {
-                url = uri(buildCacheUrl)
-                isPush = buildCachePush
-                credentials {
-                    username = buildCacheUsername
-                    password = buildCachePassword
-                }
-            }
-        }
-    }
+rootProject.name = "cookie"
+for (name in listOf("cookie-api", "cookie-server", "cookie-api-generator")) {
+    val projName = name.lowercase(Locale.ENGLISH)
+    include(projName)
+    findProject(":$projName")!!.projectDir = file(name)
 }

@@ -1,0 +1,23 @@
+--- a/src/main/java/org/purpurmc/purpur/PurpurConfig.java
++++ b/src/main/java/org/purpurmc/purpur/PurpurConfig.java
+@@ -259,7 +_,7 @@
+     public static String commandRamBarTextColorMedium = "<gradient:#ffff55:#ffaa00><text></gradient>";
+     public static String commandRamBarTextColorLow = "<gradient:#ff5555:#aa0000><text></gradient>";
+     public static int commandRamBarTickInterval = 20;
+-    public static String commandTPSBarTitle = "<gray>TPS<yellow>:</yellow> <tps> MSPT<yellow>:</yellow> <mspt> Ping<yellow>:</yellow> <ping>ms";
++    public static String commandTPSBarTitle = "<gray>World TPS<yellow>:</yellow> <tps> World MSPT<yellow>:</yellow> <mspt> Ping<yellow>:</yellow> <ping>ms"; // cookie - Threaded Server
+     public static BossBar.Overlay commandTPSBarProgressOverlay = BossBar.Overlay.NOTCHED_20;
+     public static TPSBarTask.FillMode commandTPSBarProgressFillMode = TPSBarTask.FillMode.MSPT;
+     public static BossBar.Color commandTPSBarProgressColorGood = BossBar.Color.GREEN;
+@@ -492,9 +_,10 @@
+         org.bukkit.plugin.java.JavaPluginLoader.SuppressLibraryLoaderLogger = loggerSuppressLibraryLoader;
+     }
+ 
+-    public static boolean tpsCatchup = true;
++    public static boolean tpsCatchup = false; // cookie - disable tps-catchup. this doesn't work with our threaded environment.
+     private static void tpsCatchup() {
+         tpsCatchup = getBoolean("settings.tps-catchup", tpsCatchup);
++        tpsCatchup = false; // cookie - disable tps-catchup.
+     }
+ 
+     public static boolean useUPnP = false;

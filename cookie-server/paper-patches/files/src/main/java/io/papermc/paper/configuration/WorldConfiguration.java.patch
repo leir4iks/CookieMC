@@ -1,0 +1,15 @@
+--- a/src/main/java/io/papermc/paper/configuration/WorldConfiguration.java
++++ b/src/main/java/io/papermc/paper/configuration/WorldConfiguration.java
+@@ -497,6 +_,12 @@
+     public Chunks chunks;
+ 
+     public class Chunks extends ConfigurationPart {
++        // cookie start - prevent moving into unloaded chunks
++        @PostProcess
++        public void postProcess() {
++            this.preventMovingIntoUnloadedChunks = true;
++        }
++        // cookie end
+         public AutosavePeriod autoSaveInterval = AutosavePeriod.def();
+         public int maxAutoSaveChunksPerTick = 24;
+         public int fixedChunkInhabitedTime = -1;

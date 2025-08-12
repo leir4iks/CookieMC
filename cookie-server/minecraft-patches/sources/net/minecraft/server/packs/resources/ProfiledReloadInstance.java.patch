@@ -1,0 +1,25 @@
+--- a/net/minecraft/server/packs/resources/ProfiledReloadInstance.java
++++ b/net/minecraft/server/packs/resources/ProfiledReloadInstance.java
+@@ -9,8 +_,6 @@
+ import java.util.concurrent.atomic.AtomicLong;
+ import net.minecraft.Util;
+ import net.minecraft.util.Unit;
+-import net.minecraft.util.profiling.Profiler;
+-import net.minecraft.util.profiling.ProfilerFiller;
+ import org.slf4j.Logger;
+ 
+ public class ProfiledReloadInstance extends SimpleReloadInstance<ProfiledReloadInstance.State> {
+@@ -71,13 +_,10 @@
+ 
+     private static Executor profiledExecutor(Executor executor, AtomicLong timeTaken, AtomicLong timesRun, String name) {
+         return runnable -> executor.execute(() -> {
+-            ProfilerFiller profilerFiller = Profiler.get();
+-            profilerFiller.push(name);
+             long nanos = Util.getNanos();
+             runnable.run();
+             timeTaken.addAndGet(Util.getNanos() - nanos);
+             timesRun.incrementAndGet();
+-            profilerFiller.pop();
+         });
+     }
+ 

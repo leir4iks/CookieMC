@@ -1,0 +1,18 @@
+--- a/net/minecraft/core/BlockPos.java
++++ b/net/minecraft/core/BlockPos.java
+@@ -347,7 +_,15 @@
+         };
+     }
+ 
++    // cookie start
++    private static final io.cookiemc.cookie.util.IterateOutwardsCache ITERATE_OUTWARDS_CACHE = new io.cookiemc.cookie.util.IterateOutwardsCache(50);
++    private static final it.unimi.dsi.fastutil.longs.LongList HOGLIN_PIGLIN_CACHE = ITERATE_OUTWARDS_CACHE.getOrCompute(8, 4, 8);
+     public static Iterable<BlockPos> withinManhattan(BlockPos pos, int xSize, int ySize, int zSize) {
++        if (pos != io.cookiemc.cookie.util.IterateOutwardsCache.POS_ZERO) {
++            final it.unimi.dsi.fastutil.longs.LongList positions = xSize == 8 && ySize == 4 && zSize == 8 ? HOGLIN_PIGLIN_CACHE : ITERATE_OUTWARDS_CACHE.getOrCompute(xSize, ySize, zSize);
++            return new io.cookiemc.cookie.util.LongList2BlockPosMutableIterable(pos, positions);
++        }
++    // cookie end
+         int i = xSize + ySize + zSize;
+         int x1 = pos.getX();
+         int y1 = pos.getY();

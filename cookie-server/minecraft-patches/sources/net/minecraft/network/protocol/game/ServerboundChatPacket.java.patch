@@ -1,0 +1,26 @@
+--- a/net/minecraft/network/protocol/game/ServerboundChatPacket.java
++++ b/net/minecraft/network/protocol/game/ServerboundChatPacket.java
+@@ -2,6 +_,7 @@
+ 
+ import java.time.Instant;
+ import javax.annotation.Nullable;
++import io.cookiemc.cookie.Config;
+ import net.minecraft.network.FriendlyByteBuf;
+ import net.minecraft.network.chat.LastSeenMessages;
+ import net.minecraft.network.chat.MessageSignature;
+@@ -36,4 +_,15 @@
+     public void handle(ServerGamePacketListener handler) {
+         handler.handleChat(this);
+     }
++    // cookie start - no chat reports
++
++    @Override
++    @Nullable
++    public MessageSignature signature() {
++        if (Config.INSTANCE.networking.noChatReports.enable) {
++            return null;
++        }
++        return signature;
++    }
++    // cookie end
+ }

@@ -1,0 +1,32 @@
+--- a/net/minecraft/server/commands/DebugCommand.java
++++ b/net/minecraft/server/commands/DebugCommand.java
+@@ -67,6 +_,7 @@
+     }
+ 
+     private static int start(CommandSourceStack source) throws CommandSyntaxException {
++        /*
+         MinecraftServer server = source.getServer();
+         if (server.isTimeProfilerRunning()) {
+             throw ERROR_ALREADY_RUNNING.create();
+@@ -75,9 +_,12 @@
+             source.sendSuccess(() -> Component.translatable("commands.debug.started"), true);
+             return 0;
+         }
++        */
++        return 0;
+     }
+ 
+     private static int stop(CommandSourceStack source) throws CommandSyntaxException {
++        /*
+         MinecraftServer server = source.getServer();
+         if (!server.isTimeProfilerRunning()) {
+             throw ERROR_NOT_RUNNING.create();
+@@ -93,6 +_,8 @@
+             );
+             return (int)d1;
+         }
++        */
++        return 0;
+     }
+ 
+     static class TraceCustomExecutor

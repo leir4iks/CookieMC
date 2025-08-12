@@ -1,0 +1,91 @@
+--- a/net/minecraft/world/entity/npc/WanderingTraderSpawner.java
++++ b/net/minecraft/world/entity/npc/WanderingTraderSpawner.java
+@@ -2,6 +_,7 @@
+ 
+ import java.util.Optional;
+ import javax.annotation.Nullable;
++import io.cookiemc.cookie.region.ServerRegions;
+ import net.minecraft.core.BlockPos;
+ import net.minecraft.server.level.ServerLevel;
+ import net.minecraft.tags.BiomeTags;
+@@ -32,19 +_,19 @@
+     private static final int NUMBER_OF_SPAWN_ATTEMPTS = 10;
+     private final RandomSource random = RandomSource.create();
+     private final ServerLevelData serverLevelData;
+-    private int tickDelay;
+-    private int spawnDelay;
+-    private int spawnChance;
++    // private int tickDelay; // cookie - Threaded Regions
++    // private int spawnDelay; // cookie - Threaded Regions
++    // private int spawnChance; // cookie - Threaded Regions
+ 
+     public WanderingTraderSpawner(ServerLevelData serverLevelData) {
+         this.serverLevelData = serverLevelData;
+         // Paper start - Add Wandering Trader spawn rate config options
+-        this.tickDelay = Integer.MIN_VALUE;
+-        // this.spawnDelay = serverLevelData.getWanderingTraderSpawnDelay();
++        // tickData.wanderingTraderTickDelay = Integer.MIN_VALUE; // cookie - Threaded Regions
++        // tickData.wanderingTraderSpawnDelay = serverLevelData.getWanderingTraderSpawnDelay();
+         // this.spawnChance = serverLevelData.getWanderingTraderSpawnChance();
+-        // if (this.spawnDelay == 0 && this.spawnChance == 0) {
+-        //     this.spawnDelay = 24000;
+-        //     serverLevelData.setWanderingTraderSpawnDelay(this.spawnDelay);
++        // if (tickData.wanderingTraderSpawnDelay == 0 && this.spawnChance == 0) {
++        //     tickData.wanderingTraderSpawnDelay = 24000;
++        //     serverLevelData.setWanderingTraderSpawnDelay(tickData.wanderingTraderSpawnDelay);
+         //     this.spawnChance = 25;
+         //     serverLevelData.setWanderingTraderSpawnChance(this.spawnChance);
+         // }
+@@ -53,37 +_,38 @@
+ 
+     @Override
+     public void tick(ServerLevel level, boolean spawnEnemies, boolean spawnFriendlies) {
++        ServerRegions.WorldTickData tickData = ServerRegions.getTickData(level); // cookie - Threaded Regions
+         // Paper start - Add Wandering Trader spawn rate config options
+-        if (this.tickDelay == Integer.MIN_VALUE) {
+-            this.tickDelay = level.paperConfig().entities.spawning.wanderingTrader.spawnMinuteLength;
+-            this.spawnDelay = level.paperConfig().entities.spawning.wanderingTrader.spawnDayLength;
+-            this.spawnChance = level.paperConfig().entities.spawning.wanderingTrader.spawnChanceMin;
++        if (tickData.wanderingTraderTickDelay == Integer.MIN_VALUE) { // cookie - Threaded Regions
++            tickData.wanderingTraderTickDelay = level.paperConfig().entities.spawning.wanderingTrader.spawnMinuteLength; // cookie - Threaded Regions
++            tickData.wanderingTraderSpawnDelay = level.paperConfig().entities.spawning.wanderingTrader.spawnDayLength; // cookie - Threaded Regions
++            tickData.wanderingTraderSpawnChance = level.paperConfig().entities.spawning.wanderingTrader.spawnChanceMin; // cookie - Threaded Regions
+         }
+         if (level.getGameRules().getBoolean(GameRules.RULE_DO_TRADER_SPAWNING)) {
+-            if (this.tickDelay - 1 <= 0) { // Paper - Prevent tickDelay going below 0
+-                this.tickDelay = level.paperConfig().entities.spawning.wanderingTrader.spawnMinuteLength;
+-                this.spawnDelay = this.spawnDelay - level.paperConfig().entities.spawning.wanderingTrader.spawnMinuteLength;
++            if (tickData.wanderingTraderTickDelay - 1 <= 0) { // Paper - Prevent tickDelay going below 0 // cookie - Threaded Regions
++                tickData.wanderingTraderTickDelay = level.paperConfig().entities.spawning.wanderingTrader.spawnMinuteLength; // cookie - Threaded Regions
++                tickData.wanderingTraderSpawnDelay = tickData.wanderingTraderSpawnDelay - level.paperConfig().entities.spawning.wanderingTrader.spawnMinuteLength; // cookie - Threaded Regions
+                 //this.serverLevelData.setWanderingTraderSpawnDelay(this.spawnDelay); // Paper - We don't need to save this value to disk if it gets set back to a hardcoded value anyways
+-                if (this.spawnDelay <= 0) {
+-                    this.spawnDelay = level.paperConfig().entities.spawning.wanderingTrader.spawnDayLength;
++                if (tickData.wanderingTraderSpawnDelay <= 0) { // cookie - Threaded Regions
++                    tickData.wanderingTraderSpawnDelay = level.paperConfig().entities.spawning.wanderingTrader.spawnDayLength; // cookie - Threaded Regions
+                     if (level.getGameRules().getBoolean(GameRules.RULE_DOMOBSPAWNING)) {
+-                        int i = this.spawnChance;
+-                        this.spawnChance = Mth.clamp(this.spawnChance + level.paperConfig().entities.spawning.wanderingTrader.spawnChanceFailureIncrement, level.paperConfig().entities.spawning.wanderingTrader.spawnChanceMin, level.paperConfig().entities.spawning.wanderingTrader.spawnChanceMax);
++                        int i = tickData.wanderingTraderSpawnChance; // cookie - Threaded Regions
++                        tickData.wanderingTraderSpawnChance = Mth.clamp(tickData.wanderingTraderSpawnChance + level.paperConfig().entities.spawning.wanderingTrader.spawnChanceFailureIncrement, level.paperConfig().entities.spawning.wanderingTrader.spawnChanceMin, level.paperConfig().entities.spawning.wanderingTrader.spawnChanceMax); // cookie - Threaded Regions
+                         //this.serverLevelData.setWanderingTraderSpawnChance(this.spawnChance); // Paper - We don't need to save this value to disk if it gets set back to a hardcoded value anyways
+                         if (this.random.nextInt(100) <= i) {
+                             if (this.spawn(level)) {
+-                                this.spawnChance = level.paperConfig().entities.spawning.wanderingTrader.spawnChanceMin;
++                                tickData.wanderingTraderSpawnChance = level.paperConfig().entities.spawning.wanderingTrader.spawnChanceMin; // cookie - Threaded Regions
+                                 // Paper end - Add Wandering Trader spawn rate config options
+                             }
+                         }
+                     }
+                 }
+-            } else { this.tickDelay--; } // Paper - Prevent tickDelay going below 0
++            } else { tickData.wanderingTraderTickDelay--; } // Paper - Prevent tickDelay going below 0 // cookie - Threaded Regions
+         }
+     }
+ 
+     private boolean spawn(ServerLevel serverLevel) {
+-        Player randomPlayer = serverLevel.getRandomPlayer();
++        Player randomPlayer = serverLevel.getRandomLocalPlayer(); // cookie - Threaded Regions
+         if (randomPlayer == null) {
+             return true;
+         } else if (this.random.nextInt(10) != 0) {

@@ -1,0 +1,66 @@
+--- a/src/main/java/com/destroystokyo/paper/PaperVersionFetcher.java
++++ b/src/main/java/com/destroystokyo/paper/PaperVersionFetcher.java
+@@ -36,7 +_,7 @@
+     private static final int DISTANCE_ERROR = -1;
+     private static final int DISTANCE_UNKNOWN = -2;
+     // Purpur start - Rebrand
+-    private static final String DOWNLOAD_PAGE = "https://purpurmc.org/downloads";
++    private static final String DOWNLOAD_PAGE = "https://jenkins.cookiemc.io/job/cookie/"; // cookie
+     private static int distance = DISTANCE_UNKNOWN; public int distance() { return distance; }
+     // Purpur end - Rebrand
+ 
+@@ -52,7 +_,7 @@
+         if (build.buildNumber().isEmpty() && build.gitCommit().isEmpty()) {
+             updateMessage = text("You are running a development version without access to version information", color(0xFF5300));
+         } else {
+-            updateMessage = getUpdateStatusMessage("PurpurMC/Purpur", build); // Purpur - Rebrand
++            updateMessage = getUpdateStatusMessage("Craftcookiemc/cookie", build); // Purpur - Rebrand // cookie
+         }
+         final @Nullable Component history = this.getHistory();
+ 
+@@ -66,14 +_,18 @@
+         if (buildNumber.isPresent()) {
+             distance = fetchDistanceFromSiteApi(build, buildNumber.getAsInt());
+         } else {
+-            final Optional<String> gitBranch = build.gitBranch();
++            // cookie start
++            /* final Optional<String> gitBranch = build.gitBranch();
+             final Optional<String> gitCommit = build.gitCommit();
+             if (gitBranch.isPresent() && gitCommit.isPresent()) {
+                 distance = fetchDistanceFromGitHub(repo, gitBranch.get(), gitCommit.get());
+-            }
++            } */
++            distance = -10;
++            // cookie end
+         }
+ 
+         return switch (distance) {
++            case -10 -> text("* You are running a development/local version", NamedTextColor.RED); // cookie
+             case DISTANCE_ERROR -> text("* Error obtaining version information", NamedTextColor.RED); // Purpur - Rebrand
+             case 0 -> text("* You are running the latest version", NamedTextColor.GREEN); // Purpur - Rebrand
+             case DISTANCE_UNKNOWN -> text("* Unknown version", NamedTextColor.YELLOW); // Purpur - Rebrand
+@@ -88,6 +_,7 @@
+ 
+     private static int fetchDistanceFromSiteApi(final ServerBuildInfo build, final int jenkinsBuild) {
+         try {
++            /* // cookie start - Rebrand - use our api
+             try (final BufferedReader reader = Resources.asCharSource(
+                 URI.create("https://api.purpurmc.org/v2/purpur/" + build.minecraftVersionId()).toURL(), // Purpur - Rebrand
+                 StandardCharsets.UTF_8
+@@ -98,6 +_,16 @@
+                 return latest - jenkinsBuild;
+             } catch (final JsonSyntaxException ex) {
+                 LOGGER.error("Error parsing json from Purpur's downloads API", ex); // Purpur - Rebrand
++                return DISTANCE_ERROR;
++            }
++             */
++            final String jenkinsApiUrl = "https://jenkins.cookiemc.io/job/cookie/lastSuccessfulBuild/api/json";
++            try (final BufferedReader reader = Resources.asCharSource(URI.create(jenkinsApiUrl).toURL(), StandardCharsets.UTF_8).openBufferedStream()) {
++                final JsonObject jsonObject = new Gson().fromJson(reader, JsonObject.class);
++                final int latestBuild = jsonObject.getAsJsonPrimitive("number").getAsInt();
++                return latestBuild - jenkinsBuild;
++            } catch (JsonSyntaxException throwable) {
++                LOGGER.error("Error parsing version information from cookiemc's Jenkins API", throwable);
+                 return DISTANCE_ERROR;
+             }
+         } catch (final IOException e) {

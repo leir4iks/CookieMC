@@ -1,0 +1,89 @@
+--- a/net/minecraft/world/entity/npc/Villager.java
++++ b/net/minecraft/world/entity/npc/Villager.java
+@@ -7,6 +_,7 @@
+ import com.mojang.datafixers.util.Pair;
+ import com.mojang.logging.LogUtils;
+ import com.mojang.serialization.Dynamic;
++import io.cookiemc.cookie.Config;
+ import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
+ import java.util.List;
+ import java.util.Map;
+@@ -36,8 +_,6 @@
+ import net.minecraft.tags.ItemTags;
+ import net.minecraft.util.Mth;
+ import net.minecraft.util.SpawnUtil;
+-import net.minecraft.util.profiling.Profiler;
+-import net.minecraft.util.profiling.ProfilerFiller;
+ import net.minecraft.world.Difficulty;
+ import net.minecraft.world.DifficultyInstance;
+ import net.minecraft.world.InteractionHand;
+@@ -181,6 +_,8 @@
+     private boolean isLobotomized = false; public boolean isLobotomized() { return this.isLobotomized; } // Purpur - Lobotomize stuck villagers
+     private int notLobotomizedCount = 0; // Purpur - Lobotomize stuck villagers
+ 
++    public long nextGolemPanic = -1; // cookie
++
+     public Villager(EntityType<? extends Villager> entityType, Level level) {
+         this(entityType, level, VillagerType.PLAINS);
+     }
+@@ -374,7 +_,7 @@
+         if (this.getUnhappyCounter() > 0) {
+             this.setUnhappyCounter(this.getUnhappyCounter() - 1);
+         }
+-        if (this.isEffectiveAi()) {
++        if (this.isEffectiveAi() && (!Config.INSTANCE.entities.skipAiForNonAwareMob || this.aware)) { // cookie - skip AI during inactive ticks for non-aware mobs
+             if (this.level().spigotConfig.tickInactiveVillagers) {
+                 this.customServerAiStep(this.level().getMinecraftWorld());
+             } else {
+@@ -386,6 +_,7 @@
+     }
+     // Paper end - EAR 2
+ 
++    private int behaviorTick = 0; // cookie
+     @Override
+     protected void customServerAiStep(ServerLevel level) {
+         // Paper start - EAR 2
+@@ -393,8 +_,6 @@
+     }
+     protected void customServerAiStep(ServerLevel level, boolean inactive) { // Purpur - Lobotomize stuck villagers - not final
+         // Paper end - EAR 2
+-        ProfilerFiller profilerFiller = Profiler.get();
+-        profilerFiller.push("villagerBrain");
+         // Purpur start - Lobotomize stuck villagers
+         if (this.level().purpurConfig.villagerLobotomizeEnabled) {
+             // treat as inactive if lobotomized
+@@ -405,11 +_,14 @@
+         // Purpur end - Lobotomize stuck villagers
+         // Pufferfish start
+         if (!inactive && (getRider() == null || !this.isControllable()) /*&& this.behaviorTick++ % this.activatedPriority == 0*/) { // Purpur - Ridables
++            // cookie start
++            if (this.behaviorTick++ % this.activatedPriority == 0) {
+             this.getBrain().tick(level, this); // Paper - EAR 2
++            }
++            // cookie end
+         }
+         else if (this.isLobotomized && shouldRestock()) restock(); // Purpur - Lobotomize stuck villagers
+         // Pufferfish end
+-        profilerFiller.pop();
+         if (this.assignProfessionWhenSpawned) {
+             this.assignProfessionWhenSpawned = false;
+         }
+@@ -975,7 +_,17 @@
+ 
+     private int countFoodPointsInInventory() {
+         SimpleContainer inventory = this.getInventory();
+-        return FOOD_POINTS.entrySet().stream().mapToInt(entry -> inventory.countItem(entry.getKey()) * entry.getValue()).sum();
++        // cookie start - remove streams
++        int sum = 0;
++
++        for (Map.Entry<Item, Integer> entry : FOOD_POINTS.entrySet()) {
++            Item item = entry.getKey();
++            int points = entry.getValue();
++            sum += inventory.countItem(item) * points;
++        }
++
++        return sum;
++        // cookie end
+     }
+ 
+     public boolean hasFarmSeeds() {

@@ -1,0 +1,16 @@
+--- a/net/minecraft/world/item/MaceItem.java
++++ b/net/minecraft/world/item/MaceItem.java
+@@ -101,6 +_,13 @@
+ 
+     @Override
+     public float getAttackDamageBonus(Entity target, float damage, DamageSource damageSource) {
++    // cookie start - max mace damage bonus
++        float vanilla = getVanillaDamageBonus(target, damage, damageSource);
++        return (io.cookiemc.cookie.Config.INSTANCE.maxMaceDamageBonus < 0 || vanilla <= io.cookiemc.cookie.Config.INSTANCE.maxMaceDamageBonus) ? vanilla : io.cookiemc.cookie.Config.INSTANCE.maxMaceDamageBonus;
++    }
++
++    public float getVanillaDamageBonus(Entity target, float damage, DamageSource damageSource) {
++    // cookie end
+         if (damageSource.getDirectEntity() instanceof LivingEntity livingEntity) {
+             if (!canSmashAttack(livingEntity)) {
+                 return 0.0F;

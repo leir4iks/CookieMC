@@ -1,0 +1,28 @@
+--- a/net/minecraft/core/dispenser/DispenseItemBehavior.java
++++ b/net/minecraft/core/dispenser/DispenseItemBehavior.java
+@@ -392,20 +_,20 @@
+                     return result;
+                 }
+                 // Paper end - Call BlockDispenseEvent
+-                level.captureTreeGeneration = true; // CraftBukkit
++                level.captureTreeGeneration.set(true); // cookie - threadlocal
+                 if (!BoneMealItem.growCrop(item, level, blockPos) && !BoneMealItem.growWaterPlant(item, level, blockPos, null)) {
+                     this.setSuccess(false);
+                 } else if (!level.isClientSide) {
+                     level.levelEvent(1505, blockPos, 15);
+                 }
+                 // CraftBukkit start
+-                level.captureTreeGeneration = false;
+-                if (!level.capturedBlockStates.isEmpty()) {
++                level.captureTreeGeneration.set(false); // cookie - threadlocal
++                if (level.capturedBlockStates.get().size() > 0) { // cookie - threadlocal
+                     org.bukkit.TreeType treeType = net.minecraft.world.level.block.SaplingBlock.treeType;
+                     net.minecraft.world.level.block.SaplingBlock.treeType = null;
+                     org.bukkit.Location location = org.bukkit.craftbukkit.util.CraftLocation.toBukkit(blockPos, level.getWorld());
+-                    List<org.bukkit.block.BlockState> states = new java.util.ArrayList<>(level.capturedBlockStates.values());
+-                    level.capturedBlockStates.clear();
++                    List<org.bukkit.block.BlockState> states = new java.util.ArrayList<>(level.capturedBlockStates.get().values()); // cookie - threadlocal
++                    level.capturedBlockStates.get().clear(); // cookie - threadlocal
+                     org.bukkit.event.world.StructureGrowEvent structureEvent = null;
+                     if (treeType != null) {
+                         structureEvent = new org.bukkit.event.world.StructureGrowEvent(location, treeType, false, null, states);

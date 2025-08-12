@@ -1,0 +1,609 @@
+--- a/net/minecraft/server/level/ServerChunkCache.java
++++ b/net/minecraft/server/level/ServerChunkCache.java
+@@ -1,15 +_,19 @@
+ package net.minecraft.server.level;
+ 
++import ca.spottedleaf.moonrise.patches.chunk_system.level.ChunkSystemServerLevel;
+ import com.google.common.annotations.VisibleForTesting;
+ import com.mojang.datafixers.DataFixer;
+ import com.mojang.logging.LogUtils;
++import io.cookiemc.cookie.region.ServerRegions;
++import io.cookiemc.cookie.scheduler.TickScheduler;
++import io.papermc.paper.threadedregions.ThreadedRegionizer;
+ import it.unimi.dsi.fastutil.longs.LongSet;
+-import it.unimi.dsi.fastutil.objects.ObjectArrayList;
+-import it.unimi.dsi.fastutil.objects.ReferenceOpenHashSet;
++import io.cookiemc.cookie.Config;
+ import java.io.IOException;
+ import java.nio.file.Path;
+ import java.util.Arrays;
+ import java.util.List;
++import java.util.Objects;
+ import java.util.Set;
+ import java.util.concurrent.CompletableFuture;
+ import java.util.concurrent.CompletionStage;
+@@ -19,15 +_,12 @@
+ import java.util.function.Supplier;
+ import javax.annotation.Nullable;
+ import net.minecraft.FileUtil;
+-import net.minecraft.Util;
+ import net.minecraft.core.BlockPos;
+ import net.minecraft.core.SectionPos;
+ import net.minecraft.network.protocol.Packet;
+ import net.minecraft.server.MinecraftServer;
+ import net.minecraft.server.level.progress.ChunkProgressListener;
+ import net.minecraft.util.VisibleForDebug;
+-import net.minecraft.util.profiling.Profiler;
+-import net.minecraft.util.profiling.ProfilerFiller;
+ import net.minecraft.util.thread.BlockableEventLoop;
+ import net.minecraft.world.entity.Entity;
+ import net.minecraft.world.entity.MobCategory;
+@@ -57,9 +_,9 @@
+ 
+ public class ServerChunkCache extends ChunkSource implements ca.spottedleaf.moonrise.patches.chunk_system.world.ChunkSystemServerChunkCache { // Paper - rewrite chunk system
+     private static final Logger LOGGER = LogUtils.getLogger();
+-    private final DistanceManager distanceManager;
++    public final DistanceManager distanceManager; // cookie - private -> public
+     private final ServerLevel level;
+-    public final Thread mainThread;
++    public Thread mainThread; // cookie - mutable
+     final ThreadedLevelLightEngine lightEngine;
+     public final ServerChunkCache.MainThreadExecutor mainThreadProcessor;
+     public final ChunkMap chunkMap;
+@@ -72,17 +_,18 @@
+     private final long[] lastChunkPos = new long[4];
+     private final ChunkStatus[] lastChunkStatus = new ChunkStatus[4];
+     private final ChunkAccess[] lastChunk = new ChunkAccess[4];
+-    private final List<LevelChunk> spawningChunks = new ObjectArrayList<>();
++    /* private final List<LevelChunk> spawningChunks = new ObjectArrayList<>(); // cookie - Threaded Regions
+     private final Set<ChunkHolder> chunkHoldersToBroadcast = new ReferenceOpenHashSet<>();
+     @Nullable
+     @VisibleForDebug
+-    private NaturalSpawner.SpawnState lastSpawnState;
++    private NaturalSpawner.SpawnState lastSpawnState; */ // cookie - Threaded Regions
+     // Paper start
+     private final ca.spottedleaf.concurrentutil.map.ConcurrentLong2ReferenceChainedHashTable<net.minecraft.world.level.chunk.LevelChunk> fullChunks = new ca.spottedleaf.concurrentutil.map.ConcurrentLong2ReferenceChainedHashTable<>();
+     public int getFullChunksCount() {
+         return this.fullChunks.size();
+     }
+     long chunkFutureAwaitCounter;
++    public int ticksSinceLastPurgeStaleTicketsCall = 0; // cookie
+     // Paper end
+     // Paper start - rewrite chunk system
+ 
+@@ -101,6 +_,7 @@
+         return this.fullChunks.get(ca.spottedleaf.moonrise.common.util.CoordinateUtils.getChunkKey(chunkX, chunkZ));
+     }
+ 
++    private static final ThreadLocal<ChunkPos> SYNCLOADING = new ThreadLocal<>(); // cookie - Threaded Regions
+     private ChunkAccess syncLoad(final int chunkX, final int chunkZ, final ChunkStatus toStatus) {
+         final ca.spottedleaf.moonrise.patches.chunk_system.scheduling.ChunkTaskScheduler chunkTaskScheduler = ((ca.spottedleaf.moonrise.patches.chunk_system.level.ChunkSystemServerLevel)this.level).moonrise$getChunkTaskScheduler();
+         final CompletableFuture<ChunkAccess> completable = new CompletableFuture<>();
+@@ -118,7 +_,9 @@
+ 
+         if (ca.spottedleaf.moonrise.common.util.TickThread.isTickThreadFor(this.level, chunkX, chunkZ)) {
+             ca.spottedleaf.moonrise.patches.chunk_system.scheduling.ChunkTaskScheduler.pushChunkWait(this.level, chunkX, chunkZ);
++            SYNCLOADING.set(new ChunkPos(chunkX, chunkZ)); // cookie - Threaded Regions
+             this.mainThreadProcessor.managedBlock(completable::isDone);
++            SYNCLOADING.remove(); // cookie - Threaded Regions
+             ca.spottedleaf.moonrise.patches.chunk_system.scheduling.ChunkTaskScheduler.popChunkWait();
+         }
+ 
+@@ -138,6 +_,14 @@
+         final ca.spottedleaf.moonrise.patches.chunk_system.scheduling.NewChunkHolder currentChunk = chunkHolderManager.getChunkHolder(ca.spottedleaf.moonrise.common.util.CoordinateUtils.getChunkKey(chunkX, chunkZ));
+ 
+         final ChunkAccess ifPresent = currentChunk == null ? null : currentChunk.getChunkIfPresent(toStatus);
++        // cookie start - try prevent syncload
++        if (ifPresent == null) {
++            ChunkAccess attempt = this.fullChunks.get(ca.spottedleaf.moonrise.common.util.CoordinateUtils.getChunkKey(chunkX, chunkZ));
++            if (attempt != null) {
++                return attempt;
++            }
++        }
++        // cookie end
+ 
+         if (ifPresent != null && (toStatus != ChunkStatus.FULL || currentChunk.isFullChunkReady())) {
+             return ifPresent;
+@@ -157,7 +_,7 @@
+     // Paper end - rewrite chunk system
+     // Paper start - chunk tick iteration optimisations
+     private final ca.spottedleaf.moonrise.common.util.SimpleThreadUnsafeRandom shuffleRandom = new ca.spottedleaf.moonrise.common.util.SimpleThreadUnsafeRandom(0L);
+-    private void iterateTickingChunksFaster() {
++    private void iterateTickingChunksFaster(ServerRegions.WorldTickData tickData) { // cookie - Threaded Regions
+         final ServerLevel world = this.level;
+         final int randomTickSpeed = world.getGameRules().getInt(GameRules.RULE_RANDOMTICKING);
+ 
+@@ -173,11 +_,11 @@
+ 
+         java.util.Objects.checkFromToIndex(0, size, raw.length);
+         for (int i = 0; i < size; ++i) {
+-            world.tickChunk(raw[i], randomTickSpeed);
++            LevelChunk chunk = raw[i]; if (chunk == null) continue; world.tickChunk(chunk, randomTickSpeed, tickData); // cookie - ensure nonnull - Threaded Regions
+ 
+             // call mid-tick tasks for chunk system
+             if ((i & 7) == 0) {
+-                ((ca.spottedleaf.moonrise.patches.chunk_system.server.ChunkSystemMinecraftServer)this.level.getServer()).moonrise$executeMidTickTasks();
++                this.pollTask(); // cookie - poll task, as executeMidTickTasks does nothing now
+                 continue;
+             }
+         }
+@@ -284,6 +_,12 @@
+     public LevelChunk getChunkAtIfLoadedImmediately(int x, int z) {
+         return this.fullChunks.get(ChunkPos.asLong(x, z));
+     }
++    // cookie start
++
++    @Nullable
++    public LevelChunk getChunkAtIfLoadedImmediately(long chunkKey) {
++        return this.fullChunks.get(chunkKey);
++    }
+     // Paper end
+ 
+     @Override
+@@ -330,6 +_,13 @@
+         // Paper end - rewrite chunk system
+     }
+ 
++    // cookie start
++    @Nullable
++    public LevelChunk getChunkNow(ChunkPos pos) {
++        return getChunkNow(pos.x, pos.z);
++    }
++
++    // cookie end
+     @Nullable
+     @Override
+     public LevelChunk getChunkNow(int chunkX, int chunkZ) {
+@@ -446,8 +_,7 @@
+ 
+     public boolean isPositionTicking(long chunkPos) {
+         // Paper start - rewrite chunk system
+-        final ca.spottedleaf.moonrise.patches.chunk_system.scheduling.NewChunkHolder newChunkHolder = ((ca.spottedleaf.moonrise.patches.chunk_system.level.ChunkSystemServerLevel)this.level).moonrise$getChunkTaskScheduler().chunkHolderManager.getChunkHolder(chunkPos);
+-        return newChunkHolder != null && newChunkHolder.isTickingReady();
++        return ((ChunkSystemServerLevel)this.level).moonrise$getChunkTaskScheduler().chunkHolderManager.blockTickingChunkHolders.contains(chunkPos); // cookie - faster impl
+         // Paper end - rewrite chunk system
+     }
+ 
+@@ -472,80 +_,96 @@
+     // CraftBukkit start - modelled on below
+     public void purgeUnload() {
+         if (true) return; // Paper - rewrite chunk system
+-        ProfilerFiller gameprofilerfiller = Profiler.get();
+-
+-        gameprofilerfiller.push("purge");
+         this.ticketStorage.purgeStaleTickets();
+         this.runDistanceManagerUpdates();
+-        gameprofilerfiller.popPush("unload");
+         this.chunkMap.tick(() -> true);
+-        gameprofilerfiller.pop();
+         this.clearCache();
+     }
+     // CraftBukkit end
+ 
+     @Override
+     public void tick(BooleanSupplier hasTimeLeft, boolean tickChunks) {
+-        ProfilerFiller profilerFiller = Profiler.get();
+-        profilerFiller.push("purge");
+         if (this.level.tickRateManager().runsNormally() || !tickChunks || this.level.spigotConfig.unloadFrozenChunks) { // Spigot
++            // cookie start
++            if (this.ticksSinceLastPurgeStaleTicketsCall++ > Config.INSTANCE.ticksBetweenPurgeStaleTickets) {
+             this.ticketStorage.purgeStaleTickets();
++            this.ticksSinceLastPurgeStaleTicketsCall = 0;
++            }
++            // cookie end
+         }
+ 
+         this.runDistanceManagerUpdates();
+-        profilerFiller.popPush("chunks");
+         if (tickChunks) {
+             ((ca.spottedleaf.moonrise.patches.chunk_system.level.ChunkSystemServerLevel)this.level).moonrise$getPlayerChunkLoader().tick(); // Paper - rewrite chunk system
+             this.tickChunks();
+             this.chunkMap.tick();
+         }
+ 
+-        profilerFiller.popPush("unload");
+         this.chunkMap.tick(hasTimeLeft);
+-        profilerFiller.pop();
+         this.clearCache();
+     }
+ 
+     private void tickChunks() {
+         long gameTime = this.level.getGameTime();
+-        long l = gameTime - this.lastInhabitedUpdate;
++        ServerRegions.WorldTickData tickData = ServerRegions.getTickData(this.level); // cookie - Threaded Regions
++        long l = 1L; // cookie - Threaded Regions
+         this.lastInhabitedUpdate = gameTime;
+         if (!this.level.isDebug()) {
+-            ProfilerFiller profilerFiller = Profiler.get();
+-            profilerFiller.push("pollingChunks");
+             if (this.level.tickRateManager().runsNormally()) {
+-                profilerFiller.push("tickingChunks");
+-                this.tickChunks(profilerFiller, l);
+-                profilerFiller.pop();
++                this.tickChunks(l);
+             }
+ 
+-            this.broadcastChangedChunks(profilerFiller);
+-            profilerFiller.pop();
++            this.broadcastChangedChunks();
++            // cookie start - async mob spawning
++            if (Config.INSTANCE.entities.enableAsyncSpawning) {
++                for (ServerPlayer player : tickData.getLocalPlayers()) { // cookie - Threaded Regions
++                    // Paper start - per player mob spawning backoff
++                    for (int ii = 0; ii < ServerPlayer.MOBCATEGORY_TOTAL_ENUMS; ii++) {
++                        player.mobCounts[ii] = 0;
++                        int newBackoff = player.mobBackoffCounts[ii] - 1; // TODO make configurable bleed // TODO use nonlinear algorithm?
++                        if (newBackoff < 0) {
++                            newBackoff = 0;
++                        }
++                        player.mobBackoffCounts[ii] = newBackoff;
++                    }
++                    // Paper end - per player mob spawning backoff
++               }
++                if (tickData.firstRunSpawnCounts) {
++                    tickData.firstRunSpawnCounts = false;
++                    tickData.spawnCountsReady.set(true);
++                }
++                if (tickData.spawnCountsReady.getAndSet(false)) {
++                    net.minecraft.server.MinecraftServer.getServer().mobSpawnExecutor.submit(() -> {
++                        int mapped = tickData.spawnChunkTracker.getTotalPositions();
++                        tickData.setLastSpawnState(NaturalSpawner.createState(mapped, tickData.entityTickList, this::getFullChunk, null, true)); // cookie - Threaded Regions
++                        tickData.spawnCountsReady.set(true);
++                    });
++                }
++            }
++            // cookie end
+         }
+     }
+ 
+-    private void broadcastChangedChunks(ProfilerFiller profiler) {
+-        profiler.push("broadcast");
+-
+-        for (ChunkHolder chunkHolder : this.chunkHoldersToBroadcast) {
++    private void broadcastChangedChunks() {
++        for (ChunkHolder chunkHolder : ServerRegions.getTickData(this.level).getChunkHoldersToBroadcast()) { // cookie - Threaded Regions
+             LevelChunk tickingChunk = chunkHolder.getChunkToSend(); // Paper - rewrite chunk system
+             if (tickingChunk != null) {
+                 chunkHolder.broadcastChanges(tickingChunk);
+             }
+         }
+ 
+-        this.chunkHoldersToBroadcast.clear();
+-        profiler.pop();
++        ServerRegions.getTickData(this.level).getChunkHoldersToBroadcast().clear(); // cookie - Threaded Regions
+     }
+ 
+-    private void tickChunks(ProfilerFiller profiler, long timeInhabited) {
+-        profiler.popPush("naturalSpawnCount");
++    private void tickChunks(long timeInhabited) {
++        ServerRegions.WorldTickData tickData = ServerRegions.getTickData(this.level); // cookie - Threaded Regions
+         int naturalSpawnChunkCount = this.distanceManager.getNaturalSpawnChunkCount();
+         // Paper start - Optional per player mob spawns
+         NaturalSpawner.SpawnState spawnState;
+         if ((this.spawnFriendlies || this.spawnEnemies) && this.level.paperConfig().entities.spawning.perPlayerMobSpawns) { // don't count mobs when animals and monsters are disabled
++            if (!Config.INSTANCE.entities.enableAsyncSpawning) { // cookie - async mob spawning
+             // re-set mob counts
+-            for (ServerPlayer player : this.level.players) {
++            for (ServerPlayer player : this.level.getLocalPlayers()) { // cookie - Threaded Regions
+                 // Paper start - per player mob spawning backoff
+                 for (int ii = 0; ii < ServerPlayer.MOBCATEGORY_TOTAL_ENUMS; ii++) {
+                     player.mobCounts[ii] = 0;
+@@ -558,60 +_,59 @@
+                 }
+                 // Paper end - per player mob spawning backoff
+             }
+-            spawnState = NaturalSpawner.createState(naturalSpawnChunkCount, this.level.getAllEntities(), this::getFullChunk, null, true);
++            tickData.setLastSpawnState(NaturalSpawner.createState(naturalSpawnChunkCount, this.level.getAllEntities(), this::getFullChunk, null, true)); // cookie - Threaded Regions
++            } // cookie - async mob spawning
+         } else {
+-            spawnState = NaturalSpawner.createState(naturalSpawnChunkCount, this.level.getAllEntities(), this::getFullChunk, !this.level.paperConfig().entities.spawning.perPlayerMobSpawns ? new LocalMobCapCalculator(this.chunkMap) : null, false);
++            tickData.setLastSpawnState(NaturalSpawner.createState(naturalSpawnChunkCount, this.level.getAllEntities(), this::getFullChunk, !this.level.paperConfig().entities.spawning.perPlayerMobSpawns ? new LocalMobCapCalculator(this.chunkMap) : null, false)); // cookie - Threaded Regions
++            tickData.spawnCountsReady.set(true); // cookie - async mob spawning
+         }
+         // Paper end - Optional per player mob spawns
+-        this.lastSpawnState = spawnState;
+-        profiler.popPush("spawnAndTick");
+-        boolean _boolean = this.level.getGameRules().getBoolean(GameRules.RULE_DOMOBSPAWNING) && !this.level.players().isEmpty(); // CraftBukkit
++        // this.lastSpawnState = spawnState; // cookie - async mob spawning
++        boolean _boolean = this.level.getGameRules().getBoolean(GameRules.RULE_DOMOBSPAWNING) && !this.level.getLocalPlayers().isEmpty(); // CraftBukkit // cookie - Threaded Regions
+         int _int = this.level.getGameRules().getInt(GameRules.RULE_RANDOMTICKING);
+         List<MobCategory> filteredSpawningCategories;
+         if (_boolean && (this.spawnEnemies || this.spawnFriendlies)) {
+             // Paper start - PlayerNaturallySpawnCreaturesEvent
+-            for (ServerPlayer entityPlayer : this.level.players()) {
++            for (ServerPlayer entityPlayer : tickData.getLocalPlayers()) { // cookie - Threaded Regions
+                 int chunkRange = Math.min(level.spigotConfig.mobSpawnRange, entityPlayer.getBukkitEntity().getViewDistance());
+                 chunkRange = Math.min(chunkRange, 8);
+                 entityPlayer.playerNaturallySpawnedEvent = new com.destroystokyo.paper.event.entity.PlayerNaturallySpawnCreaturesEvent(entityPlayer.getBukkitEntity(), (byte) chunkRange);
+                 entityPlayer.playerNaturallySpawnedEvent.callEvent();
+             }
+             // Paper end - PlayerNaturallySpawnCreaturesEvent
+-            boolean flag = this.level.ticksPerSpawnCategory.getLong(org.bukkit.entity.SpawnCategory.ANIMAL) != 0L && this.level.getLevelData().getGameTime() % this.level.ticksPerSpawnCategory.getLong(org.bukkit.entity.SpawnCategory.ANIMAL) == 0L; // CraftBukkit
+-            filteredSpawningCategories = NaturalSpawner.getFilteredSpawningCategories(spawnState, this.spawnFriendlies, this.spawnEnemies, flag, this.level); // CraftBukkit
++            boolean flag = this.level.ticksPerSpawnCategory.getLong(org.bukkit.entity.SpawnCategory.ANIMAL) != 0L && this.level.getRedstoneGameTime() % this.level.ticksPerSpawnCategory.getLong(org.bukkit.entity.SpawnCategory.ANIMAL) == 0L; // CraftBukkit // cookie - Threaded Regions
++            filteredSpawningCategories = NaturalSpawner.getFilteredSpawningCategories(tickData.getLastSpawnState(), this.spawnFriendlies, this.spawnEnemies, flag, this.level); // CraftBukkit // cookie - Threaded Regions
+         } else {
+             filteredSpawningCategories = List.of();
+         }
+ 
+-        List<LevelChunk> list = this.spawningChunks;
++        // List<LevelChunk> list = this.spawningChunks; // cookie - optimize chunk collect
+ 
+         try {
+-            profiler.push("filteringSpawningChunks");
+-            this.chunkMap.collectSpawningChunks(list);
+-            profiler.popPush("shuffleSpawningChunks");
++            LevelChunk[] chunks = this.chunkMap.collectSpawningChunks(tickData);
+             // Paper start - chunk tick iteration optimisation
+-            this.shuffleRandom.setSeed(this.level.random.nextLong());
+-            if (!this.level.paperConfig().entities.spawning.perPlayerMobSpawns) Util.shuffle(list, this.shuffleRandom); // Paper - Optional per player mob spawns; do not need this when per-player is enabled
++            if (!this.level.paperConfig().entities.spawning.perPlayerMobSpawns) {
++                this.shuffleRandom.setSeed(this.level.random.nextLong()); // cookie - only set seed if is really used
++                // cookie - optimize chunk collection
++            }
+             // Paper end - chunk tick iteration optimisation
+-            profiler.popPush("tickSpawningChunks");
+ 
+-            for (LevelChunk levelChunk : list) {
+-                this.tickSpawningChunk(levelChunk, timeInhabited, filteredSpawningCategories, spawnState);
++            for (LevelChunk levelChunk : chunks) { // cookie - optimize chunk collect
++                if (levelChunk == null) continue; // cookie - optimize chunk collect
++                this.tickSpawningChunk(levelChunk, timeInhabited, filteredSpawningCategories, tickData.getLastSpawnState(), tickData); // cookie - Threaded Regions
+             }
+         } finally {
+-            list.clear();
++            // list.clear(); // cookie - optimize chunk collect
+         }
+ 
+-        profiler.popPush("tickTickingChunks");
+-        this.iterateTickingChunksFaster(); // Paper - chunk tick iteration optimisations
+-        profiler.pop();
+-        profiler.popPush("customSpawners");
++        this.iterateTickingChunksFaster(tickData); // Paper - chunk tick iteration optimisations // cookie - Threaded Regions
++        tickData.randomTickSystem.tick(this.level); // cookie - optimize random tick
+         if (_boolean) {
+             this.level.tickCustomSpawners(this.spawnEnemies, this.spawnFriendlies);
+         }
+     }
+ 
+-    private void tickSpawningChunk(LevelChunk chunk, long timeInhabited, List<MobCategory> spawnCategories, NaturalSpawner.SpawnState spawnState) {
++    private void tickSpawningChunk(LevelChunk chunk, long timeInhabited, List<MobCategory> spawnCategories, NaturalSpawner.SpawnState spawnState, ServerRegions.WorldTickData tickData) { // cookie - Threaded Regions
+         ChunkPos pos = chunk.getPos();
+         chunk.incrementInhabitedTime(timeInhabited);
+         if (true) { // Paper - rewrite chunk system
+@@ -619,7 +_,7 @@
+         }
+ 
+         if (!spawnCategories.isEmpty()) {
+-            if (this.level.getWorldBorder().isWithinBounds(pos)) { // Paper - rewrite chunk system
++            if (this.level.getWorldBorder().isWithinBounds(pos) && (!Config.INSTANCE.entities.enableAsyncSpawning || tickData.spawnCountsReady.get())) { // Paper - rewrite chunk system // cookie - Threaded Regions
+                 NaturalSpawner.spawnForChunk(this.level, chunk, spawnState, spawnCategories);
+             }
+         }
+@@ -666,17 +_,17 @@
+         int sectionPosX = SectionPos.blockToSectionCoord(pos.getX());
+         int sectionPosZ = SectionPos.blockToSectionCoord(pos.getZ());
+         ChunkHolder visibleChunkIfPresent = this.getVisibleChunkIfPresent(ChunkPos.asLong(sectionPosX, sectionPosZ));
+-        if (visibleChunkIfPresent != null && visibleChunkIfPresent.blockChanged(pos)) {
+-            this.chunkHoldersToBroadcast.add(visibleChunkIfPresent);
++        if (visibleChunkIfPresent != null) { visibleChunkIfPresent.blockChanged(pos); // cookie - Threaded Regions
++            ServerRegions.getTickData(this.level).getChunkHoldersToBroadcast().add(visibleChunkIfPresent); // cookie - Threaded Regions
+         }
+     }
+ 
+     @Override
+     public void onLightUpdate(LightLayer type, SectionPos pos) {
+-        this.mainThreadProcessor.execute(() -> {
++        MinecraftServer.getThreadedServer().taskQueue.queueChunkTask(this.level, pos.getX(), pos.getZ(), () -> { // cookie - Threaded Regions
+             ChunkHolder visibleChunkIfPresent = this.getVisibleChunkIfPresent(pos.chunk().toLong());
+             if (visibleChunkIfPresent != null && visibleChunkIfPresent.sectionLightChanged(type, pos.y())) {
+-                this.chunkHoldersToBroadcast.add(visibleChunkIfPresent);
++                ServerRegions.getTickData(this.level).getChunkHoldersToBroadcast().add(visibleChunkIfPresent);
+             }
+         });
+     }
+@@ -698,6 +_,21 @@
+         return this.ticketStorage.updateChunkForced(chunkPos, add);
+     }
+ 
++    // cookie start - Threaded Regions
++    public boolean updateRegionTicket(ChunkPos pos, boolean add, TicketType ticketType) {
++        Ticket ticket = new Ticket(ticketType, ChunkMap.FORCED_TICKET_LEVEL);
++        if (Config.INSTANCE.debug.logTicketDebug) {
++            LOGGER.info("{} ticket of type {} {} chunk at {}", (add ? "Adding" : "Removing"), ticketType, (add ? "to" : "from"), pos);
++        }
++        return add ? this.ticketStorage.addTicket(pos.longKey, ticket) : this.ticketStorage.removeTicket(pos.longKey, ticket);
++    }
++
++    public boolean updateRegionTicket(int chunkX, int chunkZ, boolean add, TicketType ticketType) {
++        ChunkPos pos = new ChunkPos(chunkX, chunkZ);
++        return updateRegionTicket(pos, add, ticketType);
++    }
++
++    // cookie end
+     @Override
+     public LongSet getForceLoadedChunks() {
+         return this.ticketStorage.getForceLoadedChunks();
+@@ -769,7 +_,10 @@
+     @Nullable
+     @VisibleForDebug
+     public NaturalSpawner.SpawnState getLastSpawnState() {
+-        return this.lastSpawnState;
++        // cookie start - Threaded Regions
++        ServerRegions.WorldTickData data = ServerRegions.getTickData(this.level);
++        return data == null ? null : data.getLastSpawnState();
++        // cookie end
+     }
+ 
+     public void deactivateTicketsOnClosing() {
+@@ -778,11 +_,12 @@
+ 
+     public void onChunkReadyToSend(ChunkHolder chunkHolder) {
+         if (chunkHolder.hasChangesToBroadcast()) {
+-            this.chunkHoldersToBroadcast.add(chunkHolder);
++            ServerRegions.getTickData(this.level).getChunkHoldersToBroadcast().add(chunkHolder); // cookie - Threaded Regions
+         }
+     }
+ 
+     public final class MainThreadExecutor extends BlockableEventLoop<Runnable> {
++        public static Set<Thread> ENTITY_OVERRIDE = new io.cookiemc.cookie.util.ConcurrentSet<>(); // cookie - safe entity locking - we need polling tasks to bypass this
+         MainThreadExecutor(final Level level) {
+             super("Chunk source main thread executor for " + level.dimension().location());
+         }
+@@ -814,20 +_,146 @@
+ 
+         @Override
+         protected void doRunTask(Runnable task) {
+-            Profiler.get().incrementCounter("runTask");
+-            super.doRunTask(task);
++        // cookie start - Threaded Dimensions && Regions
++            throw new UnsupportedOperationException("Cannot schedule through MainThreadExecutor, use region scheduler");
++        }
++
++        @Override
++        public <V> CompletableFuture<V> submit(Supplier<V> task) {
++            if (true) {
++                throw new UnsupportedOperationException();
++            }
++            return super.submit(task);
++        }
++
++        @Override
++        public CompletableFuture<Void> submit(Runnable task) {
++            if (true) {
++                throw new UnsupportedOperationException();
++            }
++            return super.submit(task);
++        }
++
++        @Override
++        public void schedule(Runnable runnable) {
++            if (true) {
++                throw new UnsupportedOperationException();
++            }
++            super.schedule(runnable);
++        }
++
++        @Override
++        public void executeBlocking(Runnable runnable) {
++            if (true) {
++                throw new UnsupportedOperationException();
++            }
++            super.executeBlocking(runnable);
++        }
++
++        @Override
++        public void execute(Runnable runnable) {
++            if (true) {
++                throw new UnsupportedOperationException();
++            }
++            super.execute(runnable);
++        }
++
++        @Override
++        public void executeIfPossible(Runnable runnable) {
++            if (true) {
++                throw new UnsupportedOperationException();
++            }
++            super.executeIfPossible(runnable);
+         }
+ 
+         @Override
+         public boolean pollTask() {
+-            // Paper start - rewrite chunk system
+             final ServerChunkCache serverChunkCache = ServerChunkCache.this;
+-            if (serverChunkCache.runDistanceManagerUpdates()) {
+-                return true;
+-            } else {
+-                return super.pollTask() | ((ca.spottedleaf.moonrise.patches.chunk_system.level.ChunkSystemServerLevel)serverChunkCache.level).moonrise$getChunkTaskScheduler().executeMainThreadTask();
+-            }
+-            // Paper end - rewrite chunk system
+-        }
++            final ServerLevel serverLevel = serverChunkCache.level;
++            Thread current = Thread.currentThread();
++            if (current == MinecraftServer.getServer().serverThread) {
++                // we don't want to process chunk tasks on main.
++                // wake the world regardless, we may actually need it.
++                serverLevel.wake();
++                // return us having no tasks, since technically we don't on this thread
++                // we return this early because we cannot have main run distance manager updates
++                // this ensures that ticket updates aren't processed on main, since if it is, then
++                // we could cause parallelism issues with plugins requesting chunks that are waiting for load
++                return false;
++            }
++            ChunkPos pos = SYNCLOADING.get();
++            ServerRegions.WorldTickData oldData = null;
++            // we don't do all available chunk tasks when we are on a different
++            // tick data, as if that is going to try to tick we might take too much
++            // time, and then we are just behind, effecting the entire server
++            boolean locked = false;
++            if (pos != null) {
++                // essentially we set the current tick data if possible to the one owning this chunk
++                // and then that allows us to poll tasks for that area inside that tick data
++                // realistically this should work when 2 tick tasks depend on eachother
++                oldData = ServerRegions.pullLocalTickDataSoft();
++                if (oldData != null) {
++                    ServerRegions.WorldTickData newTickData = null;
++                    if (serverLevel.server.isRegionized()) {
++                        ThreadedRegionizer.ThreadedRegion<ServerRegions.TickRegionData, ServerRegions.TickRegionSectionData> region =
++                            serverLevel.regioniser.getRegionAtUnsynchronised(pos.x, pos.z);
++                        if (region != null) {
++                            newTickData = region.getData().tickData;
++                        }
++                    } else newTickData = serverLevel.levelTickData;
++                    // try lock now, we are ticking.
++                    // we attempt to lock in the case of if 2 tick tasks depending on each other
++                    // if they are, then we need to clear them up by ticking our own tasks if POSSIBLE
++                    // if we just lock blatantly then we end up with the issue of both threads blocking
++                    // waiting for us to release, and then we never do release so we just deadlock forever
++                    if (newTickData != null && newTickData.tickLock.tryLock()) {
++                        TickScheduler.setTickingData(newTickData, false);
++                        locked = true;
++                    }
++                }
++            }
++            try {
++                if (serverChunkCache.runDistanceManagerUpdates()) {
++                    return true;
++                } else {
++                    try {
++                        ENTITY_OVERRIDE.add(current);
++                        if (serverLevel.server.isRegionized()) {
++                            // poll our own tasks.
++                            ServerRegions.WorldTickData thisData = ServerRegions.getTickData(serverLevel);
++                            if (thisData.region != null) {
++                                // we are on a region, execute our chunk task.
++                                // unlike Folia, we still can have tasks be submitted to the
++                                // main thread executor, so we run 'super' poll aswell.
++                                final BooleanSupplier poll = () -> thisData.getTaskQueueData().executeChunkTask();
++                                return locked ? poll.getAsBoolean() : tryWake(poll);
++                            }
++                        }
++                        // not regionized OR we are on global
++                        serverLevel.runFullTickTasks(() -> false); // run outside 'poll' because this returns if the tick task was canceled, not if it has more tasks
++                        final BooleanSupplier poll = () ->
++                                serverLevel.regionTaskQueueData.executeChunkTask() |
++                                serverLevel.taskQueueRegionData.executeGlobalChunkTask();
++                        return locked ? poll.getAsBoolean() : tryWake(poll);
++                    } finally {
++                        ENTITY_OVERRIDE.remove(current);
++                    }
++                }
++            } finally {
++                if (locked && pos != null && oldData != null) {
++                    // return back to old tick data
++                    TickScheduler.setTickingData(oldData);
++                }
++            }
++        }
++
++        private boolean tryWake(BooleanSupplier whileTrue) {
++            while (whileTrue.getAsBoolean()) {
++                // wake the world regardless, we may actually need it.
++                ServerChunkCache.this.level.wake();
++            }
++            return false; // the "while true" is now false, so we return false.
++        }
++        // cookie end
+     }
+ }

@@ -1,0 +1,127 @@
+--- a/src/main/java/org/bukkit/craftbukkit/entity/CraftEntity.java
++++ b/src/main/java/org/bukkit/craftbukkit/entity/CraftEntity.java
+@@ -5,6 +_,7 @@
+ import com.google.common.base.Predicates;
+ import com.google.common.collect.ImmutableSet;
+ import com.google.common.collect.Lists;
++import io.cookiemc.cookie.region.ServerRegions;
+ import io.papermc.paper.datacomponent.DataComponentType;
+ import io.papermc.paper.entity.TeleportFlag;
+ import java.util.HashSet;
+@@ -337,7 +_,7 @@
+         if (dismount) this.entity.stopRiding(); // Paper - Teleport passenger API
+ 
+         // Let the server handle cross world teleports
+-        if (location.getWorld() != null && !location.getWorld().equals(this.getWorld())) {
++        if (!ServerRegions.isSameRegion(location, this.getLocation())) { // cookie - if it isn't the same region, we need to have the server handle this. otherwise, just snap
+             // Prevent teleportation to an other world during world generation
+             Preconditions.checkState(!this.entity.generation, "Cannot teleport entity to an other world during world generation");
+             this.entity.teleport(new TeleportTransition(((CraftWorld) location.getWorld()).getHandle(), CraftLocation.toVec3(location), Vec3.ZERO, location.getPitch(), location.getYaw(), Set.of(), TeleportTransition.DO_NOTHING, TeleportCause.PLUGIN));
+@@ -754,7 +_,7 @@
+         ImmutableSet.Builder<Player> players = ImmutableSet.builder();
+ 
+         ServerLevel world = ((CraftWorld) this.getWorld()).getHandle();
+-        ChunkMap.TrackedEntity entityTracker = world.getChunkSource().chunkMap.entityMap.get(this.getEntityId());
++        ChunkMap.TrackedEntity entityTracker = this.entity.moonrise$getTrackedEntity(); // cookie - Threaded Regions
+ 
+         if (entityTracker != null) {
+             for (ServerPlayerConnection connection : entityTracker.seenBy) {
+@@ -1067,7 +_,7 @@
+         }
+ 
+         ServerLevel world = ((CraftWorld) this.getWorld()).getHandle();
+-        ChunkMap.TrackedEntity entityTracker = world.getChunkSource().chunkMap.entityMap.get(this.getEntityId());
++        ChunkMap.TrackedEntity entityTracker = this.entity.moonrise$getTrackedEntity(); // cookie - Threaded Regions
+ 
+         if (entityTracker == null) {
+             return;
+@@ -1084,7 +_,7 @@
+         }
+ 
+         ServerLevel world = ((CraftWorld) this.getWorld()).getHandle();
+-        ChunkMap.TrackedEntity entityTracker = world.getChunkSource().chunkMap.entityMap.get(this.getEntityId());
++        ChunkMap.TrackedEntity entityTracker = this.entity.moonrise$getTrackedEntity(); // cookie - Threaded Regions
+ 
+         if (entityTracker == null) {
+             return;
+@@ -1121,26 +_,54 @@
+         ServerLevel world = ((CraftWorld)locationClone.getWorld()).getHandle();
+         CompletableFuture<Boolean> ret = new java.util.concurrent.CompletableFuture<>();
+ 
+-        world.loadChunksForMoveAsync(this.getHandle().getBoundingBoxAt(locationClone.getX(), locationClone.getY(), locationClone.getZ()),
+-            this instanceof CraftPlayer ? ca.spottedleaf.concurrentutil.util.Priority.HIGHER : ca.spottedleaf.concurrentutil.util.Priority.NORMAL, (list) -> {
+-                MinecraftServer.getServer().scheduleOnMain(() -> {
+-                    final ServerChunkCache chunkCache = world.getChunkSource();
+-                    for (final net.minecraft.world.level.chunk.ChunkAccess chunk : list) {
+-                        chunkCache.addTicketAtLevel(TicketType.POST_TELEPORT, chunk.getPos(), 33);
+-                    }
+-                    try {
+-                        ret.complete(CraftEntity.this.teleport(locationClone, cause, teleportFlags) ? Boolean.TRUE : Boolean.FALSE);
+-                    } catch (Throwable throwable) {
+-                        if (throwable instanceof ThreadDeath) {
+-                            throw (ThreadDeath)throwable;
+-                        }
+-                        MinecraftServer.LOGGER.error("Failed to teleport entity " + CraftEntity.this, throwable);
+-                        ret.completeExceptionally(throwable);
++        // cookie start - Threaded Regions
++        java.util.function.Consumer<List<net.minecraft.world.level.chunk.ChunkAccess>> finalizer = (list) -> {
++            final ServerChunkCache chunkCache = world.getChunkSource();
++            for (final net.minecraft.world.level.chunk.ChunkAccess chunk : list) {
++                chunkCache.addTicketAtLevel(TicketType.POST_TELEPORT, chunk.getPos(), 33);
++            }
++            try {
++                ret.complete(CraftEntity.this.teleport(locationClone, cause, teleportFlags) ? Boolean.TRUE : Boolean.FALSE);
++            } catch (Throwable throwable) {
++                if (throwable instanceof ThreadDeath) {
++                    throw (ThreadDeath)throwable;
++                }
++                MinecraftServer.LOGGER.error("Failed to teleport entity " + CraftEntity.this, throwable);
++                ret.completeExceptionally(throwable);
++            }
++        };
++        Runnable task = () -> {
++            world.loadChunksForMoveAsync(this.getHandle().getBoundingBoxAt(locationClone.getX(), locationClone.getY(), locationClone.getZ()),
++                this instanceof CraftPlayer ? ca.spottedleaf.concurrentutil.util.Priority.HIGHER : ca.spottedleaf.concurrentutil.util.Priority.NORMAL, (list) -> {
++                    {
++                        if (org.bukkit.Bukkit.isOwnedByCurrentRegion(this)) {
++                            finalizer.accept(list);
++                            return;
++                        }
++
++                        boolean scheduled = this.taskScheduler.schedule(
++                            // success
++                            (_) -> finalizer.accept(list),
++                            // retired
++                            (Entity _) -> {
++                                ret.complete(Boolean.FALSE);
++                            },
++                            1L
++                        );
++
++                        if (!scheduled) {
++                            ret.complete(Boolean.FALSE);
++                        }
+                     }
+                 });
+-            });
+-
++        };
++        if (!ServerRegions.isTickThreadFor(this.getHandle())) {
++            this.taskScheduler.schedule((_) -> task.run(), null, 0);
++            return ret;
++        }
++        task.run(); // is tick thread for entity, just run this
+         return ret;
++        // cookie end
+     }
+     // Paper end - more teleport API / async chunk API
+ 
+@@ -1214,7 +_,7 @@
+     @Override
+     public Set<org.bukkit.entity.Player> getTrackedPlayers() {
+         ServerLevel world = (net.minecraft.server.level.ServerLevel)this.entity.level();
+-        ChunkMap.TrackedEntity tracker = world == null ? null : world.getChunkSource().chunkMap.entityMap.get(this.entity.getId());
++        ChunkMap.TrackedEntity tracker = world == null ? null : this.entity.moonrise$getTrackedEntity(); // cookie - Threaded Regions
+         if (tracker == null) {
+             return java.util.Collections.emptySet();
+         }

@@ -1,0 +1,465 @@
+--- a/net/minecraft/world/level/Level.java
++++ b/net/minecraft/world/level/Level.java
+@@ -5,12 +_,23 @@
+ import java.io.IOException;
+ import java.util.Collection;
+ import java.util.Iterator;
++import java.util.LinkedHashMap;
+ import java.util.List;
++import java.util.Set;
+ import java.util.UUID;
+ import java.util.function.Consumer;
+ import java.util.function.Predicate;
+ import java.util.stream.Collectors;
+ import javax.annotation.Nullable;
++import io.cookiemc.cookie.region.ServerRegions;
++import io.cookiemc.cookie.server.level.MinecraftServerWorld;
++import io.cookiemc.cookie.util.ThreadLocalRandomSource;
++import it.unimi.dsi.fastutil.objects.ObjectArrayList;
++import it.unimi.dsi.fastutil.objects.ObjectLinkedOpenHashSet;
++import it.unimi.dsi.fastutil.objects.ObjectLists;
++import it.unimi.dsi.fastutil.objects.ObjectSets;
++import net.minecraft.server.level.ServerPlayer;
++import net.minecraft.world.entity.item.ItemEntity;
+ import net.minecraft.CrashReport;
+ import net.minecraft.CrashReportCategory;
+ import net.minecraft.ReportedException;
+@@ -35,8 +_,6 @@
+ import net.minecraft.util.Mth;
+ import net.minecraft.util.RandomSource;
+ import net.minecraft.util.StringRepresentable;
+-import net.minecraft.util.profiling.Profiler;
+-import net.minecraft.util.profiling.ProfilerFiller;
+ import net.minecraft.world.DifficultyInstance;
+ import net.minecraft.world.TickRateManager;
+ import net.minecraft.world.damagesource.DamageSource;
+@@ -92,9 +_,10 @@
+ import org.bukkit.craftbukkit.block.CraftBlockState;
+ import org.bukkit.craftbukkit.block.data.CraftBlockData;
+ import org.bukkit.entity.SpawnCategory;
++import org.jetbrains.annotations.NotNull;
+ // CraftBukkit end
+ 
+-public abstract class Level implements LevelAccessor, UUIDLookup<Entity>, AutoCloseable, ca.spottedleaf.moonrise.patches.chunk_system.level.ChunkSystemLevel, ca.spottedleaf.moonrise.patches.chunk_system.world.ChunkSystemEntityGetter { // Paper - rewrite chunk system // Paper - optimise collisions
++public abstract class Level extends MinecraftServerWorld implements LevelAccessor, UUIDLookup<Entity>, AutoCloseable, ca.spottedleaf.moonrise.patches.chunk_system.level.ChunkSystemLevel, ca.spottedleaf.moonrise.patches.chunk_system.world.ChunkSystemEntityGetter { // Paper - rewrite chunk system // Paper - optimise collisions // cookie - Threaded Dimensions
+     public static final Codec<ResourceKey<Level>> RESOURCE_KEY_CODEC = ResourceKey.codec(Registries.DIMENSION);
+     public static final ResourceKey<Level> OVERWORLD = ResourceKey.create(Registries.DIMENSION, ResourceLocation.withDefaultNamespace("overworld"));
+     public static final ResourceKey<Level> NETHER = ResourceKey.create(Registries.DIMENSION, ResourceLocation.withDefaultNamespace("the_nether"));
+@@ -106,9 +_,9 @@
+     public static final int TICKS_PER_DAY = 24000;
+     public static final int MAX_ENTITY_SPAWN_Y = 20000000;
+     public static final int MIN_ENTITY_SPAWN_Y = -20000000;
+-    public final List<TickingBlockEntity> blockEntityTickers = Lists.newArrayList();
+-    protected final NeighborUpdater neighborUpdater;
+-    private final List<TickingBlockEntity> pendingBlockEntityTickers = Lists.newArrayList();
++    public final List<TickingBlockEntity> blockEntityTickers = ObjectLists.synchronize(new ObjectArrayList<>()); // Paper - public // cookie - syncrhonize && fastutil
++    public final ThreadLocal<NeighborUpdater> neighborUpdater = ThreadLocal.withInitial(() -> new CollectingNeighborUpdater(this, MinecraftServer.getServer().getMaxChainedNeighborUpdates())); // cookie - protected -> public // threadlocal
++    // private final List<TickingBlockEntity> pendingBlockEntityTickers = Lists.newArrayList(); // cookie - Threaded Regions
+     private boolean tickingBlockEntities;
+     public final Thread thread;
+     private final boolean isDebug;
+@@ -119,7 +_,7 @@
+     public float rainLevel;
+     protected float oThunderLevel;
+     public float thunderLevel;
+-    public final RandomSource random = new ca.spottedleaf.moonrise.common.util.ThreadUnsafeRandom(net.minecraft.world.level.levelgen.RandomSupport.generateUniqueSeed()); // Paper - replace random
++    public final RandomSource random = ThreadLocalRandomSource.INSTANCE; // Paper - replace random // cookie - threadsafe
+     @Deprecated
+     private final RandomSource threadSafeRandom = RandomSource.createThreadSafe();
+     private final Holder<DimensionType> dimensionTypeRegistration;
+@@ -131,6 +_,15 @@
+     private final RegistryAccess registryAccess;
+     private final DamageSources damageSources;
+     private long subTickCount;
++    // cookie start - Threaded Regions
++    public List<ServerPlayer> getLocalPlayers() {
++        return ServerRegions.getTickData(this.level()).getLocalPlayers();
++    }
++
++    public List<ServerPlayer> getLocalPlayers(ChunkPos pos) {
++        return ServerRegions.getRegionizedTickData(pos.x, pos.z, this.level()).getLocalPlayers(pos);
++    }
++    // cookie end
+ 
+     // CraftBukkit start
+     public final io.papermc.paper.antixray.ChunkPacketBlockController chunkPacketBlockController; // Paper - Anti-Xray
+@@ -138,20 +_,14 @@
+     public boolean pvpMode;
+     public @Nullable org.bukkit.generator.ChunkGenerator generator;
+ 
+-    public boolean captureBlockStates = false;
+-    public boolean captureTreeGeneration = false;
+-    public Map<BlockPos, org.bukkit.craftbukkit.block.CraftBlockState> capturedBlockStates = new java.util.LinkedHashMap<>(); // Paper
+-    public Map<BlockPos, BlockEntity> capturedTileEntities = new java.util.LinkedHashMap<>(); // Paper - Retain block place order when capturing blockstates
+-    @Nullable
+-    public List<net.minecraft.world.entity.item.ItemEntity> captureDrops;
++    public final ThreadLocal<Boolean> captureBlockStates = ThreadLocal.withInitial(() -> false); // cookie - threadlocal
++    public final ThreadLocal<Boolean> captureTreeGeneration = ThreadLocal.withInitial(() -> false); // cookie - threadlocal
++    public ThreadLocal<Map<BlockPos, org.bukkit.craftbukkit.block.CraftBlockState>> capturedBlockStates = ThreadLocal.withInitial(() -> new java.util.LinkedHashMap<>()); // Paper // cookie - threadlocal
++    public ThreadLocal<Map<BlockPos, BlockEntity>> capturedTileEntities = ThreadLocal.withInitial(() -> new java.util.LinkedHashMap<>()); // Paper - Retain block place order when capturing blockstates // cookie - threadlocal
++    public final ThreadLocal<List<net.minecraft.world.entity.item.ItemEntity>> captureDrops = new ThreadLocal<List<net.minecraft.world.entity.item.ItemEntity>>(); // cookie - threadlocal
+     public final it.unimi.dsi.fastutil.objects.Object2LongOpenHashMap<SpawnCategory> ticksPerSpawnCategory = new it.unimi.dsi.fastutil.objects.Object2LongOpenHashMap<>();
+-    // Paper start - EAR 2
+-    public int wakeupInactiveRemainingAnimals;
+-    public int wakeupInactiveRemainingFlying;
+-    public int wakeupInactiveRemainingMonsters;
+-    public int wakeupInactiveRemainingVillagers;
+-    // Paper end - EAR 2
+-    public boolean populating;
++    // cookie - Threaded Regions
++    public final ThreadLocal<Boolean> populating = ThreadLocal.withInitial(() -> false); // cookie - threadlocal
+     public final org.spigotmc.SpigotWorldConfig spigotConfig; // Spigot
+     // Paper start - add paper world config
+     private final io.papermc.paper.configuration.WorldConfiguration paperConfig;
+@@ -163,8 +_,8 @@
+     public final org.purpurmc.purpur.PurpurWorldConfig purpurConfig; // Purpur - Purpur config files
+     public static @Nullable BlockPos lastPhysicsProblem; // Spigot
+     private int tileTickPosition;
+-    public final Map<ServerExplosion.CacheKey, Float> explosionDensityCache = new java.util.HashMap<>(); // Paper - Optimize explosions
+-    public java.util.ArrayDeque<net.minecraft.world.level.block.RedstoneTorchBlock.Toggle> redstoneUpdateInfos; // Paper - Faster redstone torch rapid clock removal; Move from Map in BlockRedstoneTorch to here
++    // public final Map<ServerExplosion.CacheKey, Float> explosionDensityCache = new java.util.HashMap<>(); // Paper - Optimize explosions // cookie - Threaded Regions
++    // public java.util.ArrayDeque<net.minecraft.world.level.block.RedstoneTorchBlock.Toggle> redstoneUpdateInfos; // Paper - Faster redstone torch rapid clock removal; Move from Map in BlockRedstoneTorch to here // cookie - Threaded Regions
+ 
+     // Purpur start - Add adjustable breeding cooldown to config
+     private com.google.common.cache.Cache<BreedingCooldownPair, Object> playerBreedingCooldowns;
+@@ -209,7 +_,7 @@
+     }
+     // Purpur end - Add adjustable breeding cooldown to config
+ 
+-    public CraftWorld getWorld() {
++    public @NotNull CraftWorld getWorld() {
+         return this.world;
+     }
+ 
+@@ -253,7 +_,6 @@
+ 
+     @Override
+     public final <T extends Entity> List<T> getEntitiesOfClass(final Class<T> entityClass, final AABB boundingBox, final Predicate<? super T> predicate) {
+-        Profiler.get().incrementCounter("getEntities");
+         final List<T> ret = new java.util.ArrayList<>();
+ 
+         ((ca.spottedleaf.moonrise.patches.chunk_system.level.ChunkSystemLevel)this).moonrise$getEntityLookup().getEntities(entityClass, null, boundingBox, ret, predicate);
+@@ -263,7 +_,6 @@
+ 
+     @Override
+     public final List<Entity> moonrise$getHardCollidingEntities(final Entity entity, final AABB box, final Predicate<? super Entity> predicate) {
+-        Profiler.get().incrementCounter("getEntities");
+         final List<Entity> ret = new java.util.ArrayList<>();
+ 
+         ((ca.spottedleaf.moonrise.patches.chunk_system.level.ChunkSystemLevel)this).moonrise$getEntityLookup().getHardCollidingEntities(entity, box, ret, predicate);
+@@ -466,7 +_,11 @@
+ 
+             if ((chunkDiff | chunkYDiff) != 0) {
+                 if (chunkDiff != 0) {
+-                    lastChunk = level.getChunk(newChunkX, newChunkZ).getSections();
++                    // cookie start - prevent syncload
++                    @Nullable LevelChunk chunk = level.getChunkIfLoaded(newChunkX, newChunkZ);
++                    if (chunk == null) return miss(clipContext);
++                    lastChunk = chunk.getSections();
++                    // cookie end
+                 }
+                 final int sectionY = newChunkY - minSection;
+                 lastSection = sectionY >= 0 && sectionY < lastChunk.length ? lastChunk[sectionY].states : null;
+@@ -873,6 +_,7 @@
+         io.papermc.paper.configuration.WorldConfiguration> paperWorldConfigCreator, // Paper - create paper world config
+         java.util.concurrent.Executor executor // Paper - Anti-Xray
+     ) {
++        super(dimension.location()); // cookie - Threaded Dimensions
+         // Paper start - getblock optimisations - cache world height/sections
+         final DimensionType dimType = dimensionTypeRegistration.value();
+         this.minY = dimType.minY();
+@@ -919,7 +_,7 @@
+         this.thread = Thread.currentThread();
+         this.biomeManager = new BiomeManager(this, biomeZoomSeed);
+         this.isDebug = isDebug;
+-        this.neighborUpdater = new CollectingNeighborUpdater(this, maxChainedNeighborUpdates);
++        // cookie - threadlocal neighbor updator
+         this.registryAccess = registryAccess;
+         this.damageSources = new DamageSources(registryAccess);
+ 
+@@ -982,10 +_,7 @@
+         for (int i = 0, len = entities.size(); i < len; ++i) {
+             Entity entity = entities.get(i);
+ 
+-            if (checkCanSee && source instanceof net.minecraft.server.level.ServerPlayer && entity instanceof net.minecraft.server.level.ServerPlayer
+-                && !((net.minecraft.server.level.ServerPlayer) source).getBukkitEntity().canSee(((net.minecraft.server.level.ServerPlayer) entity).getBukkitEntity())) {
+-                continue;
+-            }
++            // cookie - move down
+ 
+             // !entity1.isRemoved() && entity1.blocksBuilding && (entity == null || !entity1.isPassengerOfSameVehicle(entity))
+             // elide the last check since vanilla calls with entity = null
+@@ -994,6 +_,12 @@
+                 continue;
+             }
+ 
++            // cookie start - from up
++            if (checkCanSee && source instanceof net.minecraft.server.level.ServerPlayer && entity instanceof net.minecraft.server.level.ServerPlayer
++                && !((net.minecraft.server.level.ServerPlayer) source).getBukkitEntity().canSee(((net.minecraft.server.level.ServerPlayer) entity).getBukkitEntity())) {
++                continue;
++            }
++            // cookie end
+             if (net.minecraft.world.phys.shapes.Shapes.joinIsNotEmpty(collisionShape, net.minecraft.world.phys.shapes.Shapes.create(entity.getBoundingBox()), net.minecraft.world.phys.shapes.BooleanOp.AND)) {
+                 return false;
+             }
+@@ -1064,8 +_,8 @@
+     @Nullable
+     public final BlockState getBlockStateIfLoaded(BlockPos pos) {
+         // CraftBukkit start - tree generation
+-        if (this.captureTreeGeneration) {
+-            CraftBlockState previous = this.capturedBlockStates.get(pos);
++        if (this.captureTreeGeneration.get()) { // cookie - threadlocal
++            CraftBlockState previous = this.capturedBlockStates.get().get(pos); // cookie - threadlocal
+             if (previous != null) {
+                 return previous.getHandle();
+             }
+@@ -1130,15 +_,15 @@
+     @Override
+     public boolean setBlock(BlockPos pos, BlockState state, int flags, int recursionLeft) {
+         // CraftBukkit start - tree generation
+-        if (this.captureTreeGeneration) {
++        if (this.captureTreeGeneration.get()) { // cookie - threadlocal
+             // Paper start - Protect Bedrock and End Portal/Frames from being destroyed
+             BlockState type = getBlockState(pos);
+             if (!type.isDestroyable()) return false;
+             // Paper end - Protect Bedrock and End Portal/Frames from being destroyed
+-            CraftBlockState blockstate = this.capturedBlockStates.get(pos);
++            CraftBlockState blockstate = this.capturedBlockStates.get().get(pos); // cookie - threadlocal
+             if (blockstate == null) {
+                 blockstate = org.bukkit.craftbukkit.block.CapturedBlockState.getTreeBlockState(this, pos, flags);
+-                this.capturedBlockStates.put(pos.immutable(), blockstate);
++                this.capturedBlockStates.get().put(pos.immutable(), blockstate); // cookie - threadlocal
+             }
+             blockstate.setData(state);
+             blockstate.setFlags(flags);
+@@ -1154,14 +_,14 @@
+             Block block = state.getBlock();
+             // CraftBukkit start - capture blockstates
+             boolean captured = false;
+-            if (this.captureBlockStates) {
++            if (this.captureBlockStates.get()) { // cookie - threadlocal
+                 final CraftBlockState snapshot;
+-                if (!this.capturedBlockStates.containsKey(pos)) {
++                if (!this.capturedBlockStates.get().containsKey(pos)) { // cookie - threadlocal
+                     snapshot = (CraftBlockState) org.bukkit.craftbukkit.block.CraftBlock.at(this, pos).getState(); // Paper - use CB getState to get a suitable snapshot
+-                    this.capturedBlockStates.put(pos.immutable(), snapshot);
++                    this.capturedBlockStates.get().put(pos.immutable(), snapshot); // cookie - threadlocal
+                     captured = true;
+                 } else {
+-                    snapshot = this.capturedBlockStates.get(pos);
++                    snapshot = this.capturedBlockStates.get().get(pos); // cookie - threadlocal
+                 }
+                 snapshot.setFlags(flags); // Paper - always set the flag of the most recent call to mitigate issues with multiple update at the same pos with different flags
+             }
+@@ -1170,8 +_,8 @@
+             // CraftBukkit end
+             if (blockState == null) {
+                 // CraftBukkit start - remove blockstate if failed (or the same)
+-                if (this.captureBlockStates && captured) {
+-                    this.capturedBlockStates.remove(pos);
++                if (this.captureBlockStates.get() && captured) { // cookie - threadlocal
++                    this.capturedBlockStates.get().remove(pos); // cookie - threadlocal
+                 }
+                 // CraftBukkit end
+                 return false;
+@@ -1208,7 +_,7 @@
+                 */
+ 
+                 // CraftBukkit start
+-                if (!this.captureBlockStates) { // Don't notify clients or update physics while capturing blockstates
++                if (!this.captureBlockStates.get()) { // Don't notify clients or update physics while capturing blockstates // cookie - threadlocal
+                     // Modularize client and physic updates
+                     // Spigot start
+                     try {
+@@ -1345,7 +_,7 @@
+ 
+     @Override
+     public void neighborShapeChanged(Direction direction, BlockPos pos, BlockPos neighborPos, BlockState neighborState, int flags, int recursionLeft) {
+-        this.neighborUpdater.shapeUpdate(direction, neighborState, pos, neighborPos, flags, recursionLeft);
++        this.neighborUpdater.get().shapeUpdate(direction, neighborState, pos, neighborPos, flags, recursionLeft); // cookie - threadlocal
+     }
+ 
+     @Override
+@@ -1372,8 +_,8 @@
+     @Override
+     public BlockState getBlockState(BlockPos pos) {
+         // CraftBukkit start - tree generation
+-        if (this.captureTreeGeneration) {
+-            CraftBlockState previous = this.capturedBlockStates.get(pos); // Paper
++        if (this.captureTreeGeneration.get()) { // cookie - threadlocal
++            CraftBlockState previous = this.capturedBlockStates.get().get(pos); // Paper // cookie - threadlocal
+             if (previous != null) {
+                 return previous.getHandle();
+             }
+@@ -1485,17 +_,16 @@
+     }
+ 
+     public void addBlockEntityTicker(TickingBlockEntity ticker) {
+-        (this.tickingBlockEntities ? this.pendingBlockEntityTickers : this.blockEntityTickers).add(ticker);
++        ServerRegions.getTickData((ServerLevel) this).addBlockEntityTicker(ticker); // cookie - Threaded Regions
+     }
+ 
+     protected void tickBlockEntities() {
+-        ProfilerFiller profilerFiller = Profiler.get();
+-        profilerFiller.push("blockEntities");
+-        this.tickingBlockEntities = true;
+-        if (!this.pendingBlockEntityTickers.isEmpty()) {
+-            this.blockEntityTickers.addAll(this.pendingBlockEntityTickers);
+-            this.pendingBlockEntityTickers.clear();
+-        }
++        // cookie start - Threaded Regions
++        ServerRegions.WorldTickData worldTickData = ServerRegions.getTickData((ServerLevel) this);
++        worldTickData.setTickingBlockEntities(true);
++        worldTickData.pushPendingTickingBlockEntities();
++        List<TickingBlockEntity> blockEntityTickers = worldTickData.getBlockEntityTickers();
++        // cookie end
+ 
+         // Spigot start
+         boolean runsNormally = this.tickRateManager().runsNormally();
+@@ -1503,12 +_,13 @@
+         int tickedEntities = 0; // Paper - rewrite chunk system
+         var toRemove = new it.unimi.dsi.fastutil.objects.ReferenceOpenHashSet<TickingBlockEntity>(); // Paper - Fix MC-117075; use removeAll
+         toRemove.add(null); // Paper - Fix MC-117075
+-        for (this.tileTickPosition = 0; this.tileTickPosition < this.blockEntityTickers.size(); this.tileTickPosition++) { // Paper - Disable tick limiters
+-            TickingBlockEntity tickingBlockEntity = this.blockEntityTickers.get(this.tileTickPosition);
++        for (int i = 0; i < blockEntityTickers.size(); i++) { // Paper - Disable tick limiters // cookie - Threaded Regions
++            TickingBlockEntity tickingBlockEntity = blockEntityTickers.get(i); // cookie - Threaded Regions
+             // Spigot end
++            if (tickingBlockEntity == null) continue; // cookie - ensure non-null
+             if (tickingBlockEntity.isRemoved()) {
+                 toRemove.add(tickingBlockEntity); // Paper - Fix MC-117075; use removeAll
+-            } else if (runsNormally && this.shouldTickBlocksAt(tickingBlockEntity.getPos())) {
++            } else if (runsNormally && this.shouldTickBlockPosFilterNull(this, tickingBlockEntity.getPos())) { // cookie
+                 tickingBlockEntity.tick();
+                 // Paper start - rewrite chunk system
+                 if ((++tickedEntities & 7) == 0) {
+@@ -1517,12 +_,20 @@
+                 // Paper end - rewrite chunk system
+             }
+         }
+-        this.blockEntityTickers.removeAll(toRemove); // Paper - Fix MC-117075
+-
+-        this.tickingBlockEntities = false;
+-        profilerFiller.pop();
+-        this.spigotConfig.currentPrimedTnt = 0; // Spigot
+-    }
++        blockEntityTickers.removeAll(toRemove); // Paper - Fix MC-117075 // cookie - Threaded Regions
++
++        worldTickData.setTickingBlockEntities(false); // cookie - Threaded Regions
++        worldTickData.currentPrimedTnt = 0; // Spigot // cookie - Threaded Regions
++    }
++    // cookie start
++
++    private boolean shouldTickBlockPosFilterNull(Level instance, BlockPos pos) {
++        if (pos == null) {
++            return false;
++        }
++        return instance.shouldTickBlocksAt(pos);
++    }
++    // cookie end
+ 
+     public <T extends Entity> void guardEntityTick(Consumer<T> consumerEntity, T entity) {
+         try {
+@@ -1680,7 +_,7 @@
+     public BlockEntity getBlockEntity(BlockPos pos, boolean validate) {
+         // Paper start - Perf: Optimize capturedTileEntities lookup
+         net.minecraft.world.level.block.entity.BlockEntity blockEntity;
+-        if (!this.capturedTileEntities.isEmpty() && (blockEntity = this.capturedTileEntities.get(pos)) != null) {
++        if (!this.capturedTileEntities.get().isEmpty() && (blockEntity = this.capturedTileEntities.get().get(pos)) != null) { // cookie - threadlocal
+             return blockEntity;
+         }
+         // Paper end - Perf: Optimize capturedTileEntities lookup
+@@ -1698,8 +_,8 @@
+         BlockPos blockPos = blockEntity.getBlockPos();
+         if (!this.isOutsideBuildHeight(blockPos)) {
+             // CraftBukkit start
+-            if (this.captureBlockStates) {
+-                this.capturedTileEntities.put(blockPos.immutable(), blockEntity);
++            if (this.captureBlockStates.get()) { // cookie - threadlocal
++                this.capturedTileEntities.get().put(blockPos.immutable(), blockEntity); // cookie - threadlocal
+                 return;
+             }
+             // CraftBukkit end
+@@ -1767,8 +_,14 @@
+     }
+ 
+     @Override
+-    public void close() throws IOException {
+-        this.getChunkSource().close();
++    // cookie start - Multithreaded Dimension Ticking
++    public void close() {
++        try {
++            this.getChunkSource().close();
++        } catch (IOException e) {
++            throw new RuntimeException(e);
++        }
++    // cookie end
+     }
+ 
+     @Nullable
+@@ -1779,7 +_,6 @@
+ 
+     @Override
+     public List<Entity> getEntities(@Nullable Entity entity, AABB boundingBox, Predicate<? super Entity> predicate) {
+-        Profiler.get().incrementCounter("getEntities");
+         List<Entity> list = Lists.newArrayList();
+ 
+         // Paper start - rewrite chunk system
+@@ -1808,8 +_,6 @@
+     public <T extends Entity> void getEntities(final EntityTypeTest<Entity, T> entityTypeTest,
+                                                final AABB boundingBox, final Predicate<? super T> predicate,
+                                                final List<? super T> into, final int maxCount) {
+-        Profiler.get().incrementCounter("getEntities");
+-
+         if (entityTypeTest instanceof net.minecraft.world.entity.EntityType<T> byType) {
+             if (maxCount != Integer.MAX_VALUE) {
+                 ((ca.spottedleaf.moonrise.patches.chunk_system.level.ChunkSystemLevel)this).moonrise$getEntityLookup().getEntities(byType, boundingBox, into, predicate, maxCount);
+@@ -1917,6 +_,12 @@
+     public void disconnect() {
+     }
+ 
++    // cookie start - Threaded Regions
++    public long getRedstoneGameTime() {
++        return ServerRegions.getTickData((ServerLevel) this).getRedstoneGameTime();
++    }
++
++    // cookie end
+     public long getGameTime() {
+         return this.levelData.getGameTime();
+     }
+@@ -1944,7 +_,7 @@
+         return this.levelData;
+     }
+ 
+-    public abstract TickRateManager tickRateManager();
++    // public abstract TickRateManager tickRateManager(); // cookie - clashes with super
+ 
+     public float getThunderLevel(float partialTick) {
+         return Mth.lerp(partialTick, this.oThunderLevel, this.thunderLevel) * this.getRainLevel(partialTick);
+@@ -2025,7 +_,7 @@
+     public void updateNeighbourForOutputSignal(BlockPos pos, Block block) {
+         for (Direction direction : Direction.Plane.HORIZONTAL) {
+             BlockPos blockPos = pos.relative(direction);
+-            if (this.hasChunkAt(blockPos)) {
++            if (io.cookiemc.cookie.region.ServerRegions.isTickThreadFor(this, blockPos, 16) && this.hasChunkAt(blockPos)) { // cookie - block updates in unloaded chunks
+                 BlockState blockState = this.getBlockState(blockPos);
+                 if (blockState.is(Blocks.COMPARATOR)) {
+                     this.neighborChanged(blockState, blockPos, block, null, false);
+@@ -2183,4 +_,17 @@
+         return getWorld().getEnvironment() == org.bukkit.World.Environment.THE_END;
+     }
+     // Purpur end - Add allow water in end world option
++    // cookie start - lithium hoppers
++    public BlockEntity lithium$getLoadedExistingBlockEntity(BlockPos pos) {
++        if (!this.isOutsideBuildHeight(pos)) {
++            if (true) { // cookie - we aren't on client side, but we are also multithreaded... there is no "game thread", this is true.
++                ChunkAccess chunk = this.getChunk(SectionPos.blockToSectionCoord(pos.getX()), SectionPos.blockToSectionCoord(pos.getZ()), ChunkStatus.FULL, false);
++                if (chunk != null) {
++                    return chunk.getBlockEntity(pos);
++                }
++            }
++        }
++        return null;
++    }
++    // cookie end
+ }

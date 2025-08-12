@@ -1,0 +1,234 @@
+--- a/net/minecraft/world/entity/ExperienceOrb.java
++++ b/net/minecraft/world/entity/ExperienceOrb.java
+@@ -1,5 +_,14 @@
+ package net.minecraft.world.entity;
+ 
++import java.util.Collections;
++import java.util.HashMap;
++import java.util.Map;
++import java.util.concurrent.atomic.AtomicInteger;
++import java.util.function.BiFunction;
++import java.util.function.UnaryOperator;
++import java.util.stream.Collectors;
++import java.util.stream.Stream;
++import io.cookiemc.cookie.Config;
+ import java.util.List;
+ import java.util.Optional;
+ import javax.annotation.Nullable;
+@@ -47,6 +_,10 @@
+     @Nullable
+     public java.util.UUID triggerEntityId;
+     public org.bukkit.entity.ExperienceOrb.SpawnReason spawnReason = org.bukkit.entity.ExperienceOrb.SpawnReason.UNKNOWN;
++    // cookie start - optimize orbs
++    public Map<Integer, Integer> clumps$clumpedMap;
++    public Optional<EnchantedItemInUse> clumps$currentEntry;
++    // cookie end
+ 
+     private void loadPaperNBT(CompoundTag tag) {
+         CompoundTag expData = tag.getCompoundOrEmpty("Paper.ExpData");
+@@ -166,6 +_,11 @@
+             if (this.age >= 6000) {
+                 this.discard(org.bukkit.event.entity.EntityRemoveEvent.Cause.DESPAWN); // CraftBukkit - add Bukkit remove cause
+             }
++            // cookie start
++            if (this.count == 0) {
++                this.discard(org.bukkit.event.entity.EntityRemoveEvent.Cause.DISCARD);
++            }
++            // cookie end
+         }
+     }
+ 
+@@ -244,6 +_,28 @@
+     }
+ 
+     private static boolean tryMergeToExisting(ServerLevel level, Vec3 pos, int amount) {
++        // cookie start - optimize orbs
++        if (Config.INSTANCE.entities.clumpOrbs) {
++            AABB aABB = AABB.ofSize(pos, 1.0D, 1.0D, 1.0D);
++            int id = level.getRandom().nextInt(40);
++            List<ExperienceOrb> list = level.getEntities(EntityTypeTest.forClass(ExperienceOrb.class), aABB, (experienceOrbx) -> canMerge(experienceOrbx, id, amount));
++            if(!list.isEmpty()) {
++                ExperienceOrb experienceOrb = list.getFirst();
++                Map<Integer, Integer> clumpedMap = (experienceOrb).clumps$getClumpedMap();
++                (experienceOrb).clumps$setClumpedMap(Stream.of(clumpedMap, Collections.singletonMap(amount, 1))
++                    .flatMap(map -> map.entrySet().stream())
++                    .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, Integer::sum)));
++                (experienceOrb).count = (clumpedMap.values()
++                    .stream()
++                    .reduce(Integer::sum)
++                    .orElse(1));
++                (experienceOrb).age = (0);
++                return true;
++            } else {
++                return false;
++            }
++        }
++        // cookie end
+         // Paper - TODO some other event for this kind of merge
+         AABB aabb = AABB.ofSize(pos, 1.0, 1.0, 1.0);
+         int randomInt = level.getRandom().nextInt(io.papermc.paper.configuration.GlobalConfiguration.get().misc.xpOrbGroupsPerArea.or(ORB_GROUPS_PER_AREA)); // Paper - Configure how many orb groups per area
+@@ -259,11 +_,11 @@
+     }
+ 
+     private boolean canMerge(ExperienceOrb orb) {
+-        return orb != this && canMerge(orb, this.getId(), this.getValue());
++        return Config.INSTANCE.entities.clumpOrbs ? orb.isAlive() && !this.is(orb) : orb != this && ExperienceOrb.canMerge(orb, this.getId(), this.getValue()); // cookie - optimize orbs
+     }
+ 
+     private static boolean canMerge(ExperienceOrb orb, int amount, int other) {
+-        return !orb.isRemoved() && (orb.getId() - amount) % io.papermc.paper.configuration.GlobalConfiguration.get().misc.xpOrbGroupsPerArea.or(ORB_GROUPS_PER_AREA) == 0 && orb.getValue() == other; // Paper - Configure how many orbs will merge together
++        return Config.INSTANCE.entities.clumpOrbs ? orb.isAlive() : !orb.isRemoved() && (orb.getId() - amount) % io.papermc.paper.configuration.GlobalConfiguration.get().misc.xpOrbGroupsPerArea.or(ORB_GROUPS_PER_AREA) == 0 && orb.getValue() == other; // Paper - Configure how many orbs will merge together // cookie - optimize orbs
+     }
+ 
+     private void merge(ExperienceOrb orb) {
+@@ -272,6 +_,18 @@
+             return;
+         }
+         // Paper end - call orb merge event
++        // cookie start - optimize orbs
++        if (Config.INSTANCE.entities.clumpOrbs) {
++            Map<Integer, Integer> otherMap = (orb).clumps$getClumpedMap();
++            this.count = clumps$getClumpedMap().values().stream().reduce(Integer::sum).orElse(1);
++            this.age = Math.min(this.age, (orb).age);
++            clumps$setClumpedMap(Stream.of(clumps$getClumpedMap(), otherMap)
++                .flatMap(map -> map.entrySet().stream())
++                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, Integer::sum)));
++            orb.discard();
++            return;
++        }
++        // cookie end
+         this.count = this.count + orb.count;
+         this.age = Math.min(this.age, orb.age);
+         orb.discard(org.bukkit.event.entity.EntityRemoveEvent.Cause.MERGE); // CraftBukkit - add Bukkit remove cause
+@@ -313,6 +_,13 @@
+         compound.putInt("Value", this.getValue()); // Paper - save as Integer
+         compound.putInt("Count", this.count);
+         this.savePaperNBT(compound); // Paper
++        // cookie start
++        if(clumps$clumpedMap != null) {
++            CompoundTag map = new CompoundTag();
++            clumps$getClumpedMap().forEach((value, count) -> map.putInt(String.valueOf(value), count));
++            compound.put("clumpedMap", map);
++        }
++        // cookie end
+     }
+ 
+     @Override
+@@ -322,10 +_,52 @@
+         this.setValue(compound.getIntOr("Value", 0)); // Paper - load as Integer
+         this.count = compound.read("Count", ExtraCodecs.POSITIVE_INT).orElse(1);
+         this.loadPaperNBT(compound); // Paper
++        // cookie start
++        Map<Integer, Integer> map = new HashMap<>();
++        if(compound.contains("clumpedMap")) {
++            CompoundTag clumpedMap = compound.getCompound("clumpedMap").orElseThrow(); // orElseThrow, because we already verified that 'clumpedMap' exists
++            for(String s : clumpedMap.keySet()) {
++                map.put(Integer.parseInt(s), clumpedMap.getInt(s).orElseThrow()); // orElseThrow, because this is a valid key since we are fetching from the keyset
++            }
++        } else {
++            map.put(this.getValue(), count);
++        }
++
++        clumps$setClumpedMap(map);
++        // cookie end
+     }
+ 
+     @Override
+     public void playerTouch(Player entity) {
++        // cookie start - optimize orbs
++        if(entity instanceof ServerPlayer serverPlayer && Config.INSTANCE.entities.clumpOrbs
++            && new com.destroystokyo.paper.event.player.PlayerPickupExperienceEvent(serverPlayer.getBukkitEntity(), (org.bukkit.entity.ExperienceOrb) this.getBukkitEntity()).callEvent()) {
++            entity.takeXpDelay = 0;
++            entity.take(this, 1);
++
++            if(this.getValue() != 0 || clumps$resolve()) {
++                AtomicInteger toGive = new AtomicInteger();
++                clumps$getClumpedMap().forEach((value, amount) -> {
++                    int actualValue = value;
++                    for(int i = 0; i < amount; i++) {
++                        int leftOver = actualValue;
++                        if(leftOver == actualValue) {
++                            leftOver = this.repairPlayerItems((ServerPlayer) entity, actualValue);
++                        }
++                        if(leftOver > 0) {
++                            toGive.addAndGet(leftOver);
++                        }
++                    }
++                });
++                if(toGive.get() > 0) {
++                    entity.giveExperiencePoints(toGive.get());
++                }
++            }
++            this.count = 0;
++            this.discard(org.bukkit.event.entity.EntityRemoveEvent.Cause.PICKUP);
++            return;
++        }
++        // cookie end
+         if (entity instanceof ServerPlayer serverPlayer) {
+             if (entity.takeXpDelay == 0 && new com.destroystokyo.paper.event.player.PlayerPickupExperienceEvent(serverPlayer.getBukkitEntity(), (org.bukkit.entity.ExperienceOrb) this.getBukkitEntity()).callEvent()) { // Paper - PlayerPickupExperienceEvent
+                 entity.takeXpDelay = org.bukkit.craftbukkit.event.CraftEventFactory.callPlayerXpCooldownEvent(entity, this.level().purpurConfig.playerExpPickupDelay, org.bukkit.event.player.PlayerExpCooldownChangeEvent.ChangeReason.PICKUP_ORB).getNewCooldown(); // CraftBukkit - entityhuman.takeXpDelay = 2; // Purpur - Configurable player pickup exp delay
+@@ -343,10 +_,61 @@
+         }
+     }
+ 
++    // cookie start
++    public Optional<EnchantedItemInUse> clumps$captureCurrentEntry(Optional<EnchantedItemInUse> entry) {
++
++        clumps$currentEntry = entry;
++        return entry;
++    }
++
++    public Map<Integer, Integer> clumps$getClumpedMap() {
++
++        if(clumps$clumpedMap == null) {
++            clumps$clumpedMap = new HashMap<>();
++            clumps$clumpedMap.put(this.getValue(), 1);
++        }
++        return clumps$clumpedMap;
++    }
++
++    public void clumps$setClumpedMap(Map<Integer, Integer> map) {
++
++        clumps$clumpedMap = map;
++        clumps$resolve();
++    }
++
++    public boolean clumps$resolve() {
++
++        this.setValue(clumps$getClumpedMap().entrySet()
++            .stream()
++            .map(entry -> entry.getKey() * entry.getValue())
++            .reduce(Integer::sum)
++            .orElse(1));
++        return this.getValue() > 0;
++    }
++    // cookie end
++
+     private int repairPlayerItems(ServerPlayer player, int value) {
+-        Optional<EnchantedItemInUse> randomItemWith = level().purpurConfig.useBetterMending ? EnchantmentHelper.getMostDamagedItemWith(EnchantmentEffectComponents.REPAIR_WITH_XP, player) : EnchantmentHelper.getRandomItemWith( // Purpur - Add option to mend the most damaged equipment first
+-            EnchantmentEffectComponents.REPAIR_WITH_XP, player, ItemStack::isDamaged
+-        );
++        Optional<EnchantedItemInUse> randomItemWith = clumps$captureCurrentEntry(level().purpurConfig.useBetterMending ? EnchantmentHelper.getMostDamagedItemWith(EnchantmentEffectComponents.REPAIR_WITH_XP, player) : EnchantmentHelper.getRandomItemWith(EnchantmentEffectComponents.REPAIR_WITH_XP, player, ItemStack::isDamaged)); // Purpur - Add option to mend the most damaged equipment first // cookie - optimize orbs
++
++        // cookie start - optimize orbs
++        if (Config.INSTANCE.entities.clumpOrbs) {
++            return clumps$currentEntry
++                .map(foundItem -> {
++                    ItemStack itemstack = foundItem.itemStack();
++                    int xpToRepair = EnchantmentHelper.modifyDurabilityToRepairFromXp(player.serverLevel(), itemstack, (int) (value * 1));
++                    int toRepair = Math.min(xpToRepair, itemstack.getDamageValue());
++                    itemstack.setDamageValue(itemstack.getDamageValue() - toRepair);
++                    if(toRepair > 0) {
++                        int used = value - toRepair * value / xpToRepair;
++                        if(used > 0) {
++                            return this.repairPlayerItems(player, used);
++                        }
++                    }
++                    return 0;
++                })
++                .orElse(value);
++        }
++        // cookie end
+         if (randomItemWith.isPresent()) {
+             ItemStack itemStack = randomItemWith.get().itemStack();
+             int i = EnchantmentHelper.modifyDurabilityToRepairFromXp(player.serverLevel(), itemStack, value);

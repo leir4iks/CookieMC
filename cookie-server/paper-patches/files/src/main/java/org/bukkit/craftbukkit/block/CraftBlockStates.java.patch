@@ -1,0 +1,37 @@
+--- a/src/main/java/org/bukkit/craftbukkit/block/CraftBlockStates.java
++++ b/src/main/java/org/bukkit/craftbukkit/block/CraftBlockStates.java
+@@ -5,6 +_,7 @@
+ import java.util.Map;
+ import java.util.function.BiFunction;
+ import javax.annotation.Nullable;
++import io.cookiemc.cookie.Config;
+ import net.minecraft.core.BlockPos;
+ import net.minecraft.core.RegistryAccess;
+ import net.minecraft.nbt.CompoundTag;
+@@ -185,7 +_,7 @@
+     }
+ 
+     public static BlockState getBlockState(Block block) {
+-        return CraftBlockStates.getBlockState(block, true);
++        return CraftBlockStates.getBlockState(block, Config.INSTANCE.blocks.tileEntitySnapshotCreation); // cookie - don't use snapshots for acquiring blockstate
+     }
+ 
+     public static BlockState getBlockState(Block block, boolean useSnapshot) {
+@@ -195,14 +_,14 @@
+         BlockPos pos = craftBlock.getPosition();
+         net.minecraft.world.level.block.state.BlockState state = craftBlock.getNMS();
+         BlockEntity blockEntity = craftBlock.getHandle().getBlockEntity(pos);
+-        boolean prev = CraftBlockEntityState.DISABLE_SNAPSHOT;
+-        CraftBlockEntityState.DISABLE_SNAPSHOT = !useSnapshot;
++        boolean prev = CraftBlockEntityState.DISABLE_SNAPSHOT.get(); // cookie - threadlocal
++        CraftBlockEntityState.DISABLE_SNAPSHOT.set(!useSnapshot); // cookie - threadlocal
+         try {
+             CraftBlockState blockState = CraftBlockStates.getBlockState(world, pos, state, blockEntity);
+             blockState.setWorldHandle(craftBlock.getHandle()); // Inject the block's generator access
+             return blockState;
+         } finally {
+-            CraftBlockEntityState.DISABLE_SNAPSHOT = prev;
++            CraftBlockEntityState.DISABLE_SNAPSHOT.set(prev); // cookie - threadlocal
+         }
+     }
+ 

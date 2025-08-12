@@ -1,0 +1,11 @@
+--- a/net/minecraft/server/ServerTickRateManager.java
++++ b/net/minecraft/server/ServerTickRateManager.java
+@@ -121,7 +_,7 @@
+     public void setTickRate(float tickRate) {
+         super.setTickRate(tickRate);
+         this.server.onTickRateChanged();
+-        this.updateStateToClients();
++        if (((MinecraftServer) this.server).isTicking()) this.updateStateToClients(); // cookie - Tick Scheduler - this needs to be ticking, as we call this during boot to set the tick-rate, and we crash immediately if we don't do this.
+     }
+ 
+     public void updateJoiningPlayer(ServerPlayer player) {

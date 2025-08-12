@@ -1,0 +1,22 @@
+--- a/net/minecraft/server/packs/resources/ResourceManagerReloadListener.java
++++ b/net/minecraft/server/packs/resources/ResourceManagerReloadListener.java
+@@ -3,8 +_,6 @@
+ import java.util.concurrent.CompletableFuture;
+ import java.util.concurrent.Executor;
+ import net.minecraft.util.Unit;
+-import net.minecraft.util.profiling.Profiler;
+-import net.minecraft.util.profiling.ProfilerFiller;
+ 
+ public interface ResourceManagerReloadListener extends PreparableReloadListener {
+     @Override
+@@ -12,10 +_,7 @@
+         PreparableReloadListener.PreparationBarrier barrier, ResourceManager manager, Executor backgroundExecutor, Executor gameExecutor
+     ) {
+         return barrier.wait(Unit.INSTANCE).thenRunAsync(() -> {
+-            ProfilerFiller profilerFiller = Profiler.get();
+-            profilerFiller.push("listener");
+             this.onResourceManagerReload(manager);
+-            profilerFiller.pop();
+         }, gameExecutor);
+     }
+ 

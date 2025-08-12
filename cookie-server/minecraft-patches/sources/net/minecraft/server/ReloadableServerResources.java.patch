@@ -1,0 +1,11 @@
+--- a/net/minecraft/server/ReloadableServerResources.java
++++ b/net/minecraft/server/ReloadableServerResources.java
+@@ -99,7 +_,7 @@
+                             backgroundExecutor,
+                             gameExecutor,
+                             DATA_RELOAD_INITIAL_TASK,
+-                            LOGGER.isDebugEnabled()
++                            false
+                         )
+                         .done()
+                         .thenApply(object -> reloadableServerResources);

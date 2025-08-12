@@ -1,0 +1,41 @@
+--- a/net/minecraft/world/entity/animal/Bee.java
++++ b/net/minecraft/world/entity/animal/Bee.java
+@@ -990,7 +_,7 @@
+                 return true;
+             } else {
+                 Path path = Bee.this.navigation.getPath();
+-                return path != null && path.getTarget().equals(pos) && path.canReach() && path.isDone();
++                return path != null && path.isProcessed() && path.getTarget().equals(pos) && path.canReach() && path.isDone(); // cookie - ensure path is processed
+             }
+         }
+     }
+@@ -1406,12 +_,12 @@
+                 Bee.this.dropFlower();
+             }
+ 
+-            this.lastValidateTick = Bee.this.level().getGameTime();
++            this.lastValidateTick = Bee.this.tickCount; // cookie - use tickCount for damage source timestamps
+         }
+ 
+         @Override
+         public boolean canBeeUse() {
+-            return Bee.this.level().getGameTime() > this.lastValidateTick + this.validateFlowerCooldown;
++            return Bee.this.tickCount > this.lastValidateTick + this.validateFlowerCooldown; // cookie - use tickCount for damage source timestamps
+         }
+ 
+         @Override
+@@ -1434,12 +_,12 @@
+                 Bee.this.dropHive();
+             }
+ 
+-            this.lastValidateTick = Bee.this.level().getGameTime();
++            this.lastValidateTick = Bee.this.tickCount; // cookie - use tickCount for validation ticks
+         }
+ 
+         @Override
+         public boolean canBeeUse() {
+-            return Bee.this.level().getGameTime() > this.lastValidateTick + this.VALIDATE_HIVE_COOLDOWN;
++            return Bee.this.tickCount > this.lastValidateTick + this.VALIDATE_HIVE_COOLDOWN; // cookie - use tickCount for damage source timestamps
+         }
+ 
+         @Override

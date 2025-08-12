@@ -1,0 +1,78 @@
+--- a/net/minecraft/world/level/levelgen/NoiseBasedChunkGenerator.java
++++ b/net/minecraft/world/level/levelgen/NoiseBasedChunkGenerator.java
+@@ -10,9 +_,12 @@
+ import java.util.OptionalInt;
+ import java.util.Set;
+ import java.util.concurrent.CompletableFuture;
++import java.util.concurrent.Executor;
++import java.util.concurrent.Executors;
+ import java.util.function.Predicate;
+ import java.util.function.Supplier;
+ import javax.annotation.Nullable;
++import io.cookiemc.cookie.Config;
+ import net.minecraft.SharedConstants;
+ import net.minecraft.Util;
+ import net.minecraft.core.BlockPos;
+@@ -45,6 +_,7 @@
+ import net.minecraft.world.level.levelgen.carver.CarvingContext;
+ import net.minecraft.world.level.levelgen.carver.ConfiguredWorldCarver;
+ import org.apache.commons.lang3.mutable.MutableObject;
++import org.jetbrains.annotations.NotNull;
+ 
+ public final class NoiseBasedChunkGenerator extends ChunkGenerator {
+     public static final MapCodec<NoiseBasedChunkGenerator> CODEC = RecordCodecBuilder.mapCodec(
+@@ -65,11 +_,13 @@
+     }
+ 
+     private static Aquifer.FluidPicker createFluidPicker(NoiseGeneratorSettings settings) {
+-        Aquifer.FluidStatus fluidStatus = new Aquifer.FluidStatus(-54, Blocks.LAVA.defaultBlockState());
+-        int seaLevel = settings.seaLevel();
+-        Aquifer.FluidStatus fluidStatus1 = new Aquifer.FluidStatus(seaLevel, settings.defaultFluid());
+-        Aquifer.FluidStatus fluidStatus2 = new Aquifer.FluidStatus(DimensionType.MIN_Y * 2, Blocks.AIR.defaultBlockState());
+-        return (x, y, z) -> y < Math.min(-54, seaLevel) ? fluidStatus : fluidStatus1;
++        // cookie start - optimize
++        Aquifer.FluidStatus fluidLevel = new Aquifer.FluidStatus(-54, Blocks.LAVA.defaultBlockState());
++        int i = settings.seaLevel();
++        Aquifer.FluidStatus fluidLevel2 = new Aquifer.FluidStatus(i, settings.defaultFluid());
++        final int min = Math.min(-54, i);
++        return (j, k, lx) -> k < min ? fluidLevel : fluidLevel2;
++        // cookie end
+     }
+ 
+     @Override
+@@ -375,7 +_,7 @@
+ 
+                                 interpolatedState = this.debugPreliminarySurfaceLevel(noiseChunk, i10, i7, i13, interpolatedState);
+                                 if (interpolatedState != AIR && !SharedConstants.debugVoidTerrain(chunk.getPos())) {
+-                                    section.setBlockState(i11, i8, i14, interpolatedState, false);
++                                    optimizedBlockSetOp(section, i11, i8, i14, interpolatedState, false); // cookie - optimize noise
+                                     heightmapUnprimed.update(i11, i7, i14, interpolatedState);
+                                     heightmapUnprimed1.update(i11, i7, i14, interpolatedState);
+                                     if (aquifer.shouldScheduleFluidUpdate() && !interpolatedState.getFluidState().isEmpty()) {
+@@ -395,6 +_,26 @@
+         noiseChunk.stopInterpolation();
+         return chunk;
+     }
++    // cookie start - optimize noise gen
++
++    private void optimizedBlockSetOp(@NotNull LevelChunkSection chunkSection, int chunkSectionBlockPosX, int chunkSectionBlockPosY, int chunkSectionBlockPosZ, @NotNull BlockState blockState, boolean lock) {
++        chunkSection.nonEmptyBlockCount += 1;
++
++        if (!blockState.getFluidState().isEmpty()) {
++            chunkSection.tickingFluidCount += 1;
++        }
++
++        if (blockState.isRandomlyTicking()) {
++            chunkSection.tickingBlockCount += 1;
++        }
++
++        var blockStateId = chunkSection.states.data.palette.idFor(blockState);
++        chunkSection.states.data.storage().set(
++            chunkSection.states.strategy.getIndex(chunkSectionBlockPosX, chunkSectionBlockPosY,
++                chunkSectionBlockPosZ
++            ), blockStateId);
++    }
++    // cookie end
+ 
+     private BlockState debugPreliminarySurfaceLevel(NoiseChunk chunk, int x, int y, int z, BlockState state) {
+         return state;

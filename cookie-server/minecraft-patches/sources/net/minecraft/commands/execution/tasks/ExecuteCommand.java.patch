@@ -1,0 +1,19 @@
+--- a/net/minecraft/commands/execution/tasks/ExecuteCommand.java
++++ b/net/minecraft/commands/execution/tasks/ExecuteCommand.java
+@@ -23,7 +_,6 @@
+ 
+     @Override
+     public void execute(T source, ExecutionContext<T> executionContext, Frame frame) {
+-        executionContext.profiler().push(() -> "execute " + this.commandInput);
+ 
+         try {
+             executionContext.incrementCost();
+@@ -34,8 +_,6 @@
+             }
+         } catch (CommandSyntaxException var9) {
+             source.handleError(var9, this.modifiers.isForked(), executionContext.tracer());
+-        } finally {
+-            executionContext.profiler().pop();
+         }
+     }
+ }

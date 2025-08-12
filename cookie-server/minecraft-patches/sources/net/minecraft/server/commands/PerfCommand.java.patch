@@ -1,0 +1,32 @@
+--- a/net/minecraft/server/commands/PerfCommand.java
++++ b/net/minecraft/server/commands/PerfCommand.java
+@@ -42,6 +_,8 @@
+     }
+ 
+     private static int startProfilingDedicatedServer(CommandSourceStack source) throws CommandSyntaxException {
++        return 0;
++        /*
+         MinecraftServer server = source.getServer();
+         if (server.isRecordingMetrics()) {
+             throw ERROR_ALREADY_RUNNING.create();
+@@ -52,9 +_,12 @@
+             source.sendSuccess(() -> Component.translatable("commands.perf.started"), false);
+             return 0;
+         }
++        */
+     }
+ 
+     private static int stopProfilingDedicatedServer(CommandSourceStack source) throws CommandSyntaxException {
++        return 0;
++        /*
+         MinecraftServer server = source.getServer();
+         if (!server.isRecordingMetrics()) {
+             throw ERROR_NOT_RUNNING.create();
+@@ -62,6 +_,7 @@
+             server.finishRecordingMetrics();
+             return 0;
+         }
++        */
+     }
+ 
+     private static void saveResults(CommandSourceStack source, Path path, MinecraftServer server) {

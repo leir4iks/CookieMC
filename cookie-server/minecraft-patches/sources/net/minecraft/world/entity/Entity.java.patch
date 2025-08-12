@@ -1,0 +1,961 @@
+--- a/net/minecraft/world/entity/Entity.java
++++ b/net/minecraft/world/entity/Entity.java
+@@ -1,5 +_,16 @@
+ package net.minecraft.world.entity;
+ 
++import ca.spottedleaf.concurrentutil.util.Priority;
++import ca.spottedleaf.moonrise.patches.chunk_system.level.entity.ChunkEntitySlices;
++import io.cookiemc.cookie.Config;
++import io.cookiemc.cookie.entity.EntityStatusLock;
++import io.cookiemc.cookie.region.ServerRegions;
++import io.cookiemc.cookie.util.ConcurrentSet;
++import io.cookiemc.cookie.util.ThreadLocalRandomSource;
++import it.unimi.dsi.fastutil.longs.LongSets;
++import it.unimi.dsi.fastutil.objects.ObjectLists;
++import net.minecraft.world.level.chunk.status.ChunkStatus;
++import org.agrona.collections.ObjectHashSet;
+ import com.google.common.collect.ImmutableList;
+ import com.google.common.collect.Lists;
+ import com.google.common.collect.Sets;
+@@ -22,11 +_,14 @@
+ import java.util.Optional;
+ import java.util.Set;
+ import java.util.UUID;
++import java.util.concurrent.atomic.AtomicBoolean;
+ import java.util.concurrent.atomic.AtomicInteger;
+ import java.util.function.BiConsumer;
++import java.util.function.Consumer;
+ import java.util.function.Predicate;
+ import java.util.stream.Stream;
+ import javax.annotation.Nullable;
++import it.unimi.dsi.fastutil.objects.Object2DoubleMaps;
+ import net.minecraft.BlockUtil;
+ import net.minecraft.CrashReport;
+ import net.minecraft.CrashReportCategory;
+@@ -82,8 +_,6 @@
+ import net.minecraft.tags.TagKey;
+ import net.minecraft.util.Mth;
+ import net.minecraft.util.RandomSource;
+-import net.minecraft.util.profiling.Profiler;
+-import net.minecraft.util.profiling.ProfilerFiller;
+ import net.minecraft.world.InteractionHand;
+ import net.minecraft.world.InteractionResult;
+ import net.minecraft.world.Nameable;
+@@ -115,6 +_,7 @@
+ import net.minecraft.world.level.block.SoundType;
+ import net.minecraft.world.level.block.state.BlockState;
+ import net.minecraft.world.level.border.WorldBorder;
++import net.minecraft.world.level.chunk.LevelChunk;
+ import net.minecraft.world.level.entity.EntityAccess;
+ import net.minecraft.world.level.entity.EntityInLevelCallback;
+ import net.minecraft.world.level.gameevent.DynamicGameEventListener;
+@@ -122,6 +_,7 @@
+ import net.minecraft.world.level.levelgen.Heightmap;
+ import net.minecraft.world.level.material.Fluid;
+ import net.minecraft.world.level.material.FluidState;
++import net.minecraft.world.level.material.Fluids;
+ import net.minecraft.world.level.material.PushReaction;
+ import net.minecraft.world.level.portal.PortalShape;
+ import net.minecraft.world.level.portal.TeleportTransition;
+@@ -151,7 +_,7 @@
+     }
+ 
+     // Paper start - Share random for entities to make them more random
+-    public static RandomSource SHARED_RANDOM = new RandomRandomSource();
++    public static RandomSource SHARED_RANDOM = ThreadLocalRandomSource.INSTANCE; // cookie - threadsafe
+     // Paper start - replace random
+     private static final class RandomRandomSource extends ca.spottedleaf.moonrise.common.util.ThreadUnsafeRandom {
+         public RandomRandomSource() {
+@@ -235,7 +_,7 @@
+     public double yo;
+     public double zo;
+     private Vec3 position;
+-    private BlockPos blockPosition;
++    public BlockPos blockPosition; // cookie - private -> public
+     private ChunkPos chunkPosition;
+     private Vec3 deltaMovement = Vec3.ZERO;
+     private float yRot;
+@@ -267,9 +_,12 @@
+     public int tickCount;
+     private int remainingFireTicks = -this.getFireImmuneTicks();
+     public boolean wasTouchingWater;
+-    protected Object2DoubleMap<TagKey<Fluid>> fluidHeight = new Object2DoubleArrayMap<>(2);
++    protected Object2DoubleMap<TagKey<Fluid>> fluidHeight = Object2DoubleMaps.synchronize(new Object2DoubleArrayMap<>(2)); // cookie - synchronize
+     protected boolean wasEyeInWater;
+-    private final Set<TagKey<Fluid>> fluidOnEyes = new HashSet<>();
++    private final Set<TagKey<Fluid>> fluidOnEyes = new ObjectHashSet<>(); // cookie - agrona
++    private static final int FLUID_WATER = 1; // cookie - optimize
++    private static final int FLUID_LAVA = 2; // cookie - optimize
++    private int fluidCache = 0; // cookie - optimize
+     public int invulnerableTime;
+     protected boolean firstTick = true;
+     protected final SynchedEntityData entityData;
+@@ -300,7 +_,7 @@
+     protected UUID uuid; // Purpur - Add toggle for RNG manipulation
+     protected String stringUUID; // Purpur - Add toggle for RNG manipulation
+     private boolean hasGlowingTag;
+-    private final Set<String> tags = new io.papermc.paper.util.SizeLimitedSet<>(new it.unimi.dsi.fastutil.objects.ObjectOpenHashSet<>(), MAX_ENTITY_TAG_COUNT); // Paper - fully limit tag size - replace set impl
++    private final Set<String> tags = new io.papermc.paper.util.SizeLimitedSet<>(Sets.newConcurrentHashSet(), MAX_ENTITY_TAG_COUNT); // Paper - fully limit tag size - replace set impl // cookie - concurrent
+     private final double[] pistonDeltas = new double[]{0.0, 0.0, 0.0};
+     private long pistonDeltasGameTime;
+     protected EntityDimensions dimensions;
+@@ -314,9 +_,10 @@
+     public net.kyori.adventure.util.TriState visualFire = net.kyori.adventure.util.TriState.NOT_SET; // Paper - improve visual fire API
+     @Nullable
+     private BlockState inBlockState = null;
+-    private final List<List<Entity.Movement>> movementThisTick = new ObjectArrayList<>();
+-    private final List<Entity.Movement> finalMovementsThisTick = new ObjectArrayList<>();
+-    private final LongSet visitedBlocks = new LongOpenHashSet();
++    private final List<List<Entity.Movement>> movementThisTick = ObjectLists.synchronize(new ObjectArrayList<>()); // cookie - synchronized
++    private final List<Entity.Movement> finalMovementsThisTick = ObjectLists.synchronize(new ObjectArrayList<>()); // cookie - synchronized
++    private final LongSet visitedBlocks = LongSets.synchronize(new LongOpenHashSet()); // cookie - synchronized
++    private final EntityStatusLock inBlockAndMovementLock = new EntityStatusLock(this, 10, 1_000_000 / 2 /* 0.5ms */, false); // cookie - Threaded Regions
+     private final InsideBlockEffectApplier.StepBasedCollector insideEffectCollector = new InsideBlockEffectApplier.StepBasedCollector();
+     private CustomData customData = CustomData.EMPTY;
+     // CraftBukkit start
+@@ -346,6 +_,8 @@
+     public boolean fixedPose = false; // Paper - Expand Pose API
+     private final int despawnTime; // Paper - entity despawn time limit
+     public int totalEntityAge; // Paper - age-like counter for all entities
++    public boolean activatedPriorityReset = false; // cookie - DAB
++    public int activatedPriority = Config.INSTANCE.entities.dynamicActivationofBrain.maximumActivationPrio; // cookie - DAB (golf score)
+     public final io.papermc.paper.entity.activation.ActivationType activationType = io.papermc.paper.entity.activation.ActivationType.activationTypeFor(this); // Paper - EAR 2/tracking ranges
+     // Paper start - EAR 2
+     public final boolean defaultActivationState;
+@@ -376,6 +_,10 @@
+     private int sectionY = Integer.MIN_VALUE;
+     private int sectionZ = Integer.MIN_VALUE;
+     private boolean updatingSectionStatus;
++    // cookie start - threadsafe entity status changes
++    public static final Set<Entity> locked = new ConcurrentSet<>();
++    public final EntityStatusLock statusLock = new EntityStatusLock(this, 40, 1_000_000L, true);
++    // cookie end
+ 
+     @Override
+     public final boolean moonrise$isHardColliding() {
+@@ -526,23 +_,48 @@
+     // Purpur end - Add canSaveToDisk to Entity
+ 
+     // Purpur start - copied from Mob - API for any mob to burn daylight
++    // cookie start - optimize sun burn tick
++    private BlockPos cached_eye_blockpos;
++    private net.minecraft.world.phys.Vec3 cached_position;
+     public boolean isSunBurnTick() {
+         if (this.level().isBrightOutside() && !this.level().isClientSide) {
+-            float lightLevelDependentMagicValue = this.getLightLevelDependentMagicValue();
+-            BlockPos blockPos = BlockPos.containing(this.getX(), this.getEyeY(), this.getZ());
++            if (this.cached_position != this.position) {
++                this.cached_eye_blockpos = BlockPos.containing(this.getX(), this.getEyeY(), this.getZ());
++                this.cached_position = this.position;
++            }
++
++            float lightLevelDependentMagicValue = this.getLightLevelDependentMagicValue(cached_eye_blockpos); // Pass BlockPos to getBrightness
++
++            // Check brightness first
++            if (lightLevelDependentMagicValue <= 0.5F) return false;
++            if (this.random.nextFloat() * 30.0F >= (lightLevelDependentMagicValue - 0.4F) * 2.0F) return false;
++
+             boolean flag = this.isInWaterOrRain() || this.isInPowderSnow || this.wasInPowderSnow;
+-            if (lightLevelDependentMagicValue > 0.5F
+-                && this.random.nextFloat() * 30.0F < (lightLevelDependentMagicValue - 0.4F) * 2.0F
+-                && !flag
+-                && this.level().canSeeSky(blockPos)) {
+-                return true;
+-            }
++            return !flag && this.level().canSeeSky(this.cached_eye_blockpos);
+         }
+ 
+         return false;
+     }
++    // cookie end
+     // Purpur end - copied from Mob - API for any mob to burn daylight
+ 
++    // cookie start - Threaded Regions
++    public void updateTicks(long fromTickOffset, long fromRedstoneTimeOffset) {
++        if (this.activatedTick != Integer.MIN_VALUE) {
++            this.activatedTick += fromTickOffset;
++        }
++        if (this.activatedImmunityTick != Integer.MIN_VALUE) {
++            this.activatedImmunityTick += fromTickOffset;
++        }
++        if (this.pistonDeltasGameTime != Long.MIN_VALUE) {
++            this.pistonDeltasGameTime += fromRedstoneTimeOffset;
++        }
++    }
++
++    public boolean canBeSpectated() {
++        return !this.getBukkitEntity().taskScheduler.isRetired();
++    }
++    // cookie end
+     public Entity(EntityType<?> entityType, Level level) {
+         this.type = entityType;
+         this.level = level;
+@@ -677,7 +_,7 @@
+     public void resendPossiblyDesyncedEntityData(net.minecraft.server.level.ServerPlayer player) {
+         if (player.getBukkitEntity().canSee(this.getBukkitEntity())) {
+             ServerLevel world = (net.minecraft.server.level.ServerLevel)this.level();
+-            net.minecraft.server.level.ChunkMap.TrackedEntity tracker = world == null ? null : world.getChunkSource().chunkMap.entityMap.get(this.getId());
++            net.minecraft.server.level.ChunkMap.TrackedEntity tracker = this.moonrise$getTrackedEntity(); // cookie - Threaded Regions
+             if (tracker == null) {
+                 return;
+             }
+@@ -848,10 +_,10 @@
+     // CraftBukkit end
+ 
+     public void baseTick() {
+-        ProfilerFiller profilerFiller = Profiler.get();
+-        profilerFiller.push("entityBaseTick");
+         if (firstTick && this instanceof net.minecraft.world.entity.NeutralMob neutralMob) neutralMob.tickInitialPersistentAnger(level); // Paper - Prevent entity loading causing async lookups
++        this.inBlockAndMovementLock.acquire(); // cookie - Threaded Regions
+         this.inBlockState = null;
++        this.inBlockAndMovementLock.release(); // cookie - Threaded Regions
+         if (this.isPassenger() && this.getVehicle().isRemoved()) {
+             this.stopRiding();
+         }
+@@ -899,15 +_,19 @@
+ 
+         this.checkBelowWorld();
+         if (!this.level().isClientSide) {
++            // cookie start - hide flames on entities with fire resistance
++            if (this instanceof net.minecraft.world.entity.LivingEntity livingEntity) {
++                this.setSharedFlagOnFire(this.remainingFireTicks > 0 && (!Config.INSTANCE.entities.hideFlamesOnEntitiesWithFireResistance || !livingEntity.hasEffect(net.minecraft.world.effect.MobEffects.FIRE_RESISTANCE)));
++            } else {
++            // cookie end
+             this.setSharedFlagOnFire(this.remainingFireTicks > 0);
++            } // cookie - hide flames on entities with fire resistance
+         }
+ 
+         this.firstTick = false;
+         if (this.level() instanceof ServerLevel serverLevelx && this instanceof Leashable) {
+             Leashable.tickLeash(serverLevelx, (Entity & Leashable)this);
+         }
+-
+-        profilerFiller.pop();
+     }
+ 
+     public void setSharedFlagOnFire(boolean isOnFire) {
+@@ -1066,12 +_,34 @@
+         return this.mainSupportingBlockPos.isPresent() && this.mainSupportingBlockPos.get().equals(pos);
+     }
+ 
++    // cookie start - cache supporting block check
++    private boolean canSkipSupportingBlockSearch = false;
++    private BlockState cachedSupportingBlockState = null;
++    // cookie end
+     protected void checkSupportingBlock(boolean onGround, @Nullable Vec3 movement) {
++        // cookie start - cache supporting block check
++        if (movement == null || (movement.x == 0 && movement.z == 0 && movement.y == 0)) {
++            if (canSkipSupportingBlockSearch) {
++                return;
++            }
++        } else {
++            // Invalidate cache on movement
++            canSkipSupportingBlockSearch = false;
++            cachedSupportingBlockState = null;
++        }
++        // cookie end
+         if (onGround) {
+             AABB boundingBox = this.getBoundingBox();
+             AABB aabb = new AABB(boundingBox.minX, boundingBox.minY - 1.0E-6, boundingBox.minZ, boundingBox.maxX, boundingBox.minY, boundingBox.maxZ);
+             Optional<BlockPos> optional = this.level.findSupportingBlock(this, aabb);
+             if (optional.isPresent() || this.onGroundNoBlocks) {
++                // cookie start - cache supporting block check
++                if (optional.isPresent()) { // Cache the block state if found
++                    BlockPos pos = optional.get();
++                    cachedSupportingBlockState = this.level.getBlockState(pos);
++                    canSkipSupportingBlockSearch = true;
++                }
++                // cookie end
+                 this.mainSupportingBlockPos = optional;
+             } else if (movement != null) {
+                 AABB aabb1 = aabb.move(-movement.x, 0.0, -movement.z);
+@@ -1092,35 +_,16 @@
+         return this.onGround;
+     }
+ 
+-    // Paper start - detailed watchdog information
+-    public final Object posLock = new Object(); // Paper - log detailed entity tick information
+-
+-    @Nullable
+-    private Vec3 moveVector;
+-    private double moveStartX;
+-    private double moveStartY;
+-    private double moveStartZ;
+-    // Paper end - detailed watchdog information
+-
+     public void move(MoverType type, Vec3 movement) {
+         final Vec3 originalMovement = movement; // Paper - Expose pre-collision velocity
+-        // Paper start - detailed watchdog information
+         ca.spottedleaf.moonrise.common.util.TickThread.ensureTickThread("Cannot move an entity off-main");
+-        synchronized (this.posLock) {
+-            this.moveStartX = this.getX();
+-            this.moveStartY = this.getY();
+-            this.moveStartZ = this.getZ();
+-            this.moveVector = movement;
+-        }
+-        try {
+-        // Paper end - detailed watchdog information
+         if (this.noPhysics) {
+             this.setPos(this.getX() + movement.x, this.getY() + movement.y, this.getZ() + movement.z);
+         } else {
+             if (type == MoverType.PISTON) {
+                 // Paper start - EAR 2
+-                this.activatedTick = Math.max(this.activatedTick, MinecraftServer.currentTick + 20);
+-                this.activatedImmunityTick = Math.max(this.activatedImmunityTick, MinecraftServer.currentTick + 20);
++                this.activatedTick = Math.max(this.activatedTick, ServerRegions.getCurrentTick(this.level.level()) + 20); // cookie - Threaded Regions
++                this.activatedImmunityTick = Math.max(this.activatedImmunityTick, ServerRegions.getCurrentTick(this.level.level()) + 20); // cookie - Threaded Regions
+                 // Paper end - EAR 2
+                 movement = this.limitPistonMovement(movement);
+                 if (movement.equals(Vec3.ZERO)) {
+@@ -1128,8 +_,6 @@
+                 }
+             }
+ 
+-            ProfilerFiller profilerFiller = Profiler.get();
+-            profilerFiller.push("move");
+             if (this.stuckSpeedMultiplier.lengthSqr() > 1.0E-7) {
+                 movement = movement.multiply(this.stuckSpeedMultiplier);
+                 this.stuckSpeedMultiplier = Vec3.ZERO;
+@@ -1138,12 +_,11 @@
+             // Paper start - ignore movement changes while inactive.
+             if (isTemporarilyActive && !(this instanceof ItemEntity) && movement == getDeltaMovement() && type == MoverType.SELF) {
+                 setDeltaMovement(Vec3.ZERO);
+-                profilerFiller.pop();
+                 return;
+             }
+             // Paper end
+ 
+-            movement = this.maybeBackOffFromEdge(movement, type);
++            if (!Config.INSTANCE.entities.optimizePlayerMovementProcessing) movement = this.maybeBackOffFromEdge(movement, type); // cookie - optimize player movement checks
+             Vec3 vec3 = this.collide(movement);
+             double d = vec3.lengthSqr();
+             if (d > 1.0E-7 || movement.lengthSqr() - d < 1.0E-7) {
+@@ -1173,8 +_,6 @@
+                 this.setPos(vec31);
+             }
+ 
+-            profilerFiller.pop();
+-            profilerFiller.push("rest");
+             boolean flag = !Mth.equal(movement.x, vec3.x);
+             boolean flag1 = !Mth.equal(movement.z, vec3.z);
+             this.horizontalCollision = flag || flag1;
+@@ -1197,7 +_,6 @@
+             }
+ 
+             if (this.isRemoved()) {
+-                profilerFiller.pop();
+             } else {
+                 if (this.horizontalCollision) {
+                     Vec3 deltaMovement = this.getDeltaMovement();
+@@ -1239,18 +_,19 @@
+                     }
+                 }
+ 
++                // cookie start - skip negligible planar movement multiplication
++                Vec3 oldDeltaMovement = this.getDeltaMovement();
++                if (oldDeltaMovement.x < -1e-6 || oldDeltaMovement.x > 1e-6 || oldDeltaMovement.z < -1e-6 || oldDeltaMovement.z > 1e-6) {
++                // cookie end
+                 float blockSpeedFactor = this.getBlockSpeedFactor();
+-                this.setDeltaMovement(this.getDeltaMovement().multiply(blockSpeedFactor, 1.0, blockSpeedFactor));
+-                profilerFiller.pop();
++                // cookie start
++                    if (blockSpeedFactor < 1 - 1e-6 || blockSpeedFactor > 1 + 1e-6) {
++                        this.setDeltaMovement(oldDeltaMovement.multiply(blockSpeedFactor, 1.0, blockSpeedFactor));
++                    }
++                }
++                // cookie end
+             }
+         }
+-        // Paper start - detailed watchdog information
+-        } finally {
+-            synchronized (this.posLock) { // Paper
+-                this.moveVector = null;
+-            } // Paper
+-        }
+-        // Paper end - detailed watchdog information
+     }
+ 
+     private void applyMovementEmissionAndPlaySound(Entity.MovementEmission movementEmission, Vec3 movement, BlockPos pos, BlockState state) {
+@@ -1415,6 +_,12 @@
+     }
+ 
+     protected BlockPos getOnPos(float yOffset) {
++        // cookie start
++        int i = Mth.floor(this.position.x);
++        int j = Mth.floor(this.position.y - (double) yOffset);
++        int k = Mth.floor(this.position.z);
++        BlockPos fallback = new BlockPos(i, j, k);
++        // cookie end
+         if (this.mainSupportingBlockPos.isPresent() && this.level().getChunkIfLoadedImmediately(this.mainSupportingBlockPos.get()) != null) { // Paper - ensure no loads
+             BlockPos blockPos = this.mainSupportingBlockPos.get();
+             if (!(yOffset > 1.0E-5F)) {
+@@ -1428,10 +_,7 @@
+                     : blockPos;
+             }
+         } else {
+-            int floor = Mth.floor(this.position.x);
+-            int floor1 = Mth.floor(this.position.y - yOffset);
+-            int floor2 = Mth.floor(this.position.z);
+-            return new BlockPos(floor, floor1, floor2);
++            return fallback; // cookie
+         }
+     }
+ 
+@@ -1459,7 +_,7 @@
+         if (pos.lengthSqr() <= 1.0E-7) {
+             return pos;
+         } else {
+-            long gameTime = this.level().getGameTime();
++            long gameTime = this.level().getRedstoneGameTime(); // cookie - Threaded Regions
+             if (gameTime != this.pistonDeltasGameTime) {
+                 Arrays.fill(this.pistonDeltas, 0.0);
+                 this.pistonDeltasGameTime = gameTime;
+@@ -1644,6 +_,7 @@
+     private void checkInsideBlocks(List<Entity.Movement> movements, InsideBlockEffectApplier.StepBasedCollector stepBasedCollector) {
+         if (this.isAffectedByBlocks()) {
+             LongSet set = this.visitedBlocks;
++            final net.minecraft.world.level.chunk.ChunkAccess[] chunkCache = new net.minecraft.world.level.chunk.ChunkAccess[4]; // cookie - optimize check inside blocks
+ 
+             for (Entity.Movement movement : movements) {
+                 Vec3 vec3 = movement.from();
+@@ -1655,7 +_,21 @@
+                     aabb,
+                     (pos, step) -> {
+                         if (this.isAlive()) {
+-                            BlockState blockState = this.level().getBlockState(pos);
++                            // cookie start - optimize
++                            final int chunkX = pos.getX() >> 4;
++                            final int chunkZ = pos.getZ() >> 4;
++                            final int chunkKey = ((chunkX << 2) | chunkZ) & 3;
++                            net.minecraft.world.level.chunk.ChunkAccess chunk = chunkCache[chunkKey];
++                            if (chunk == null || chunk.locX != chunkX || chunk.locZ != chunkZ) {
++                                chunk = this.level().getChunkIfLoadedImmediately(chunkX, chunkZ);
++                                if (chunk == null) {
++                                    return;
++                                }
++                                chunkCache[chunkKey] = chunk;
++                            }
++                            final BlockState blockState = chunk.getBlockStateIfLoaded(pos);
++                            if (blockState == null) return;
++                            // cookie end
+                             if (!blockState.isAir()) {
+                                 if (set.add(pos.asLong())) {
+                                     VoxelShape entityInsideCollisionShape = blockState.getEntityInsideCollisionShape(this.level(), pos, this);
+@@ -1944,7 +_,7 @@
+ 
+     private void updateFluidOnEyes() {
+         this.wasEyeInWater = this.isEyeInFluid(FluidTags.WATER);
+-        this.fluidOnEyes.clear();
++        this.fluidCache = 0; // cookie - optimize
+         double eyeY = this.getEyeY();
+         if (!(
+             this.getVehicle() instanceof AbstractBoat abstractBoat
+@@ -1953,11 +_,30 @@
+                 && abstractBoat.getBoundingBox().minY <= eyeY
+         )) {
+             BlockPos blockPos = BlockPos.containing(this.getX(), eyeY, this.getZ());
+-            FluidState fluidState = this.level().getFluidState(blockPos);
++            // cookie start - prevent syncload
++            FluidState fluidState = null;
++            if (level.isOutsideBuildHeight(this.blockPosition)) {
++                fluidState = Fluids.EMPTY.defaultFluidState();
++            } else {
++                @Nullable LevelChunk chunk = this.level.getChunkIfLoaded(this.chunkPosition.x, this.chunkPosition.z);
++                if (chunk != null) {
++                    fluidState = chunk.getFluidState(blockPos);
++                }
++            }
++            if (fluidState != null) {
++            // cookie end
+             double d = blockPos.getY() + fluidState.getHeight(this.level(), blockPos);
+             if (d > eyeY) {
+-                fluidState.getTags().forEach(this.fluidOnEyes::add);
++                // cookie start - optimize
++                if (fluidState.is(FluidTags.WATER)) {
++                    setFluidStatus(FluidTags.WATER, true);
++                }
++                if (fluidState.is(FluidTags.LAVA)) {
++                    setFluidStatus(FluidTags.LAVA, true);
++                }
++                // cookie end
+             }
++            } // cookie - prevent syncload
+         }
+     }
+ 
+@@ -2037,8 +_,20 @@
+     }
+ 
+     public boolean isEyeInFluid(TagKey<Fluid> fluidTag) {
+-        return this.fluidOnEyes.contains(fluidTag);
+-    }
++        return fluidTag == FluidTags.WATER ? (fluidCache & FLUID_WATER) != 0 : fluidTag == FluidTags.LAVA && (fluidCache & FLUID_LAVA) != 0; // cookie - optimize
++    }
++    // cookie start - optimize
++
++    public void setFluidStatus(TagKey<Fluid> fluidTag, boolean isInFluid) {
++        int bit = fluidTag == FluidTags.WATER ? FLUID_WATER
++            : fluidTag == FluidTags.LAVA ? FLUID_LAVA
++            : 0;
++
++        if (bit == 0) return;
++
++        fluidCache = isInFluid ? (fluidCache | bit) : (fluidCache & ~bit);
++    }
++    // cookie end
+ 
+     public boolean isInLava() {
+         return !this.firstTick && this.fluidHeight.getDouble(FluidTags.LAVA) > 0.0;
+@@ -2063,10 +_,16 @@
+ 
+     @Deprecated
+     public float getLightLevelDependentMagicValue() {
++    // cookie start - optimize sun burn tick
++        return this.getLightLevelDependentMagicValue(BlockPos.containing(this.getX(), this.getEyeY(), this.getZ()));
++    }
++
++    public float getLightLevelDependentMagicValue(BlockPos pos) {
+         return this.level().hasChunkAt(this.getBlockX(), this.getBlockZ())
+-            ? this.level().getLightLevelDependentMagicValue(BlockPos.containing(this.getX(), this.getEyeY(), this.getZ()))
++            ? this.level.getLightLevelDependentMagicValue(pos)
+             : 0.0F;
+     }
++    // cookie end
+ 
+     public void absSnapTo(double x, double y, double z, float yRot, float xRot) {
+         this.absSnapTo(x, y, z);
+@@ -2185,8 +_,9 @@
+     }
+ 
+     public void push(Entity entity) {
++        if (!entity.noPhysics && !this.noPhysics) { // cookie - collision physics check before vehicle check
+         if (!this.isPassengerOfSameVehicle(entity)) {
+-            if (!entity.noPhysics && !this.noPhysics) {
++            // if (!entity.noPhysics && !this.noPhysics) { // cookie - collision physics check before vehicle check
+                 if (this.level.paperConfig().collisions.onlyPlayersCollide && !(entity instanceof ServerPlayer || this instanceof ServerPlayer)) return; // Paper - Collision option for requiring a player participant
+                 double d = entity.getX() - this.getX();
+                 double d1 = entity.getZ() - this.getZ();
+@@ -2850,7 +_,13 @@
+ 
+         for (int currChunkZ = minChunkZ; currChunkZ <= maxChunkZ; ++currChunkZ) {
+             for (int currChunkX = minChunkX; currChunkX <= maxChunkX; ++currChunkX) {
+-                final net.minecraft.world.level.chunk.LevelChunkSection[] sections = chunkSource.getChunk(currChunkX, currChunkZ, net.minecraft.world.level.chunk.status.ChunkStatus.FULL, true).getSections();
++                // cookie start - don't call syncload
++                @Nullable net.minecraft.world.level.chunk.ChunkAccess access = chunkSource.getChunk(currChunkX, currChunkZ, net.minecraft.world.level.chunk.status.ChunkStatus.FULL, false);
++                if (access == null) {
++                    continue;
++                }
++                final net.minecraft.world.level.chunk.LevelChunkSection[] sections = access.getSections();
++                // cookie end
+ 
+                 for (int currChunkY = minChunkY; currChunkY <= maxChunkY; ++currChunkY) {
+                     final int sectionIdx = currChunkY - minSection;
+@@ -3278,19 +_,17 @@
+             this.processPortalCooldown();
+             if (this.portalProcess != null) {
+                 if (this.portalProcess.processPortalTeleportation(serverLevel, this, this.canUsePortal(false))) {
+-                    ProfilerFiller profilerFiller = Profiler.get();
+-                    profilerFiller.push("portal");
+                     this.setPortalCooldown();
+                     TeleportTransition portalDestination = this.portalProcess.getPortalDestination(serverLevel, this);
+                     if (portalDestination != null) {
+                         ServerLevel level = portalDestination.newLevel();
++                        level.wake(); // cookie - wake the thread if sleeping
+                         if (this instanceof ServerPlayer // CraftBukkit - always call event for players
+                             || (level != null && (level.dimension() == serverLevel.dimension() || this.canTeleport(serverLevel, level)))) { // CraftBukkit
+                             this.teleport(portalDestination);
+                         }
+                     }
+ 
+-                    profilerFiller.pop();
+                 } else if (this.portalProcess.hasExpired()) {
+                     this.portalProcess = null;
+                 }
+@@ -3778,8 +_,10 @@
+ 
+     @Nullable
+     public Entity teleport(TeleportTransition teleportTransition) {
++        try { // cookie - Threaded Dimensions - resync time on teleport
+         // Paper start - Fix item duplication and teleport issues
+         if ((!this.isAlive() || !this.valid) && (teleportTransition.newLevel() != this.level)) {
++            LOGGER.warn("Illegal Entity Teleport details: !Alive:{} !Valid:{} TeleportDest:{}", !this.isAlive(), !this.valid, (teleportTransition.newLevel() != this.level)); // cookie - include extra debug info
+             LOGGER.warn("Illegal Entity Teleport {} to {}:{}", this, teleportTransition.newLevel(), teleportTransition.position(), new Throwable());
+             return null;
+         }
+@@ -3838,6 +_,13 @@
+         } else {
+             return null;
+         }
++        // cookie start - Threaded Dimensions - resync time on teleport
++        } finally {
++            if (this instanceof ServerPlayer serverPlayer) {
++                serverPlayer.requestingTimeResync = true;
++            }
++        }
++        // cookie end
+     }
+ 
+     private Entity teleportSameDimension(ServerLevel level, TeleportTransition teleportTransition) {
+@@ -3845,19 +_,17 @@
+             entity.teleport(this.calculatePassengerTransition(teleportTransition, entity));
+         }
+ 
+-        ProfilerFiller profilerFiller = Profiler.get();
+-        profilerFiller.push("teleportSameDimension");
+         this.teleportSetPosition(PositionMoveRotation.of(teleportTransition), teleportTransition.relatives());
+         if (!teleportTransition.asPassenger()) {
+             this.sendTeleportTransitionToRidingPlayers(teleportTransition);
+         }
+ 
+         teleportTransition.postTeleportTransition().onTransition(this);
+-        profilerFiller.pop();
+         return this;
+     }
+ 
+     private Entity teleportCrossDimension(ServerLevel level, TeleportTransition teleportTransition) {
++        this.level.wake(); level.wake(); // cookie - wake if sleeping
+         List<Entity> passengers = this.getPassengers();
+         List<Entity> list = new ArrayList<>(passengers.size());
+         this.ejectPassengers();
+@@ -3869,11 +_,8 @@
+             }
+         }
+ 
+-        ProfilerFiller profilerFiller = Profiler.get();
+-        profilerFiller.push("teleportCrossDimension");
+         Entity entityx = this.getType().create(level, EntitySpawnReason.DIMENSION_TRAVEL);
+         if (entityx == null) {
+-            profilerFiller.pop();
+             return null;
+         } else {
+             // Paper start - Fix item duplication and teleport issues
+@@ -3892,7 +_,6 @@
+ 
+             level.resetEmptyTime();
+             teleportTransition.postTeleportTransition().onTransition(entityx);
+-            profilerFiller.pop();
+             return entityx;
+         }
+     }
+@@ -3933,6 +_,78 @@
+     public void teleportSetPosition(PositionMoveRotation positionMovementRotation, Set<Relative> relatives) {
+         PositionMoveRotation positionMoveRotation = PositionMoveRotation.of(this);
+         PositionMoveRotation positionMoveRotation1 = PositionMoveRotation.calculateAbsolute(positionMoveRotation, positionMovementRotation, relatives);
++        // cookie start - Threaded Regions
++        // Note: when an entity teleports, at this point 'this.level' is guaranteed to be the destination world.
++        //       we have no way to know which world was the last world, so it is safe to assume any world is
++        //       where we originated. during teleport, we must clear *all* handles of this entity to prevent
++        //       2 sets of tick data holding this entity. if this happens, we encounter crashes and undiagnosable issues
++        ServerLevel destinationWorld = this.level.level();
++        MinecraftServer minecraftServer = this.getServer();
++        boolean isSameRegion = this.level == this.oldLevel && ServerRegions.isSameRegion(
++            this.blockPosition, BlockPos.containing(positionMoveRotation1.position()), destinationWorld
++        ); // if the destination && origin same, then compare regions, if not, it's not same region
++        // we compute this so that we can determine if we need to run a full teleport of
++        // the entity because if it is the same region, we don't need to re-regionize
++        if (minecraftServer == null) {
++            throw new IllegalStateException("MinecraftServer for entity was null!");
++        }
++        if (destinationWorld == null) {
++            throw new IllegalStateException("Destination world for entity was null!");
++        }
++
++        // run any packets we might have
++        if (this instanceof ServerPlayer serverPlayer) {
++            serverPlayer.connection.connection.tickPackets();
++        }
++
++        final AtomicBoolean loadedEntities = new AtomicBoolean(false);
++        final AtomicBoolean entityTickList = new AtomicBoolean(false);
++        final AtomicBoolean navigatingMobs = new AtomicBoolean(false);
++        final AtomicBoolean trackerEntities = new AtomicBoolean(false);
++        Runnable removeFromAllTickData = () -> {
++            Consumer<ServerRegions.WorldTickData> dataClearer = (regionizedWorldData) -> {
++                regionizedWorldData.removeEntity(this, false); // don't bother checking, we know it's here.
++                if (regionizedWorldData.loadedEntities.contains(this)) {
++                    // this data has the entity in 'loadedEntities', remove and set needing to be added
++                    loadedEntities.set(true);
++                    // remove directly instead of using the methods to remove, because we already know the entity is in this data
++                    // so we don't want to try and relocate to a data that might not have it
++                    regionizedWorldData.loadedEntities.remove(this);
++                }
++                if (regionizedWorldData.hasEntityTickingEntity(this)) {
++                    // entity is in 'entityTickList'
++                    entityTickList.set(true);
++                    // remove directly instead of using the methods to remove, because we already know the entity is in this data
++                    // so we don't want to try and relocate to a data that might not have it
++                    regionizedWorldData.entityTickList.remove(this);
++                }
++                if (this instanceof Mob mob && regionizedWorldData.navigatingMobs.contains(mob)) {
++                    // entity is in 'navigatingMobs'
++                    navigatingMobs.set(true);
++                    // remove directly instead of using the methods to remove, because we already know the entity is in this data
++                    // so we don't want to try and relocate to a data that might not have it
++                    regionizedWorldData.navigatingMobs.remove(mob);
++                }
++                if (regionizedWorldData.trackerEntities.contains(this)) {
++                    // entity is in 'trackerEntities'
++                    trackerEntities.set(true);
++                    regionizedWorldData.trackerEntities.remove(this);
++                }
++            };
++            for (final ServerLevel world : minecraftServer.getAllLevels()) {
++                // clear all data
++                if (minecraftServer.isRegionized()) {
++                    // assume the world tick data has no hold of the entity. if it does, that would be very concerning
++                    world.regioniser.computeForAllRegions((region) -> dataClearer.accept(region.getData().tickData));
++                }
++                dataClearer.accept(world.levelTickData);
++                if (this instanceof ServerPlayer serverPlayer) {
++                    world.networkRouter.clearFromRouter(serverPlayer.connection.connection);
++                }
++            }
++        };
++        if (!isSameRegion && minecraftServer.isRegionized()) removeFromAllTickData.run();
++        // cookie end
+         this.setPosRaw(positionMoveRotation1.position().x, positionMoveRotation1.position().y, positionMoveRotation1.position().z);
+         this.setYRot(positionMoveRotation1.yRot());
+         this.setYHeadRot(positionMoveRotation1.yRot());
+@@ -3940,6 +_,61 @@
+         this.reapplyPosition();
+         this.setOldPosAndRot();
+         this.setDeltaMovement(positionMoveRotation1.deltaMovement());
++        // cookie start
++        if (!isSameRegion) {
++            // new position has been set in the destination world, begin adding the entity back to the server
++            // at this point, nothing in the server should contain the entity, we are safe to assume that we
++            // will not have multiple sets of tick data owning this entity
++            final int chunkX = this.getBlockX() >> 4;
++            final int chunkZ = this.getBlockZ() >> 4;
++            destinationWorld.getChunkSource().updateRegionTicket(chunkX, chunkZ, true, TicketType.TELEPORT);
++            // load the chunk we need. this will ensure the region we grab will not be null
++            destinationWorld.getChunkSource().getChunk(chunkX, chunkZ, ChunkStatus.FULL, true);
++            // add to destination data
++            Runnable wrap = () -> {
++                removeFromAllTickData.run(); // run a second time to ensure we are fully removed
++                // run any packets we might have
++                if (this instanceof ServerPlayer serverPlayer) {
++                    serverPlayer.connection.connection.tickPackets();
++                }
++                ServerRegions.WorldTickData destinationData = minecraftServer.isRegionized() ?
++                    Objects.requireNonNull(destinationWorld.regioniser.getRegionAtUnsynchronised(chunkX, chunkZ), "region shouldn't be null").getData().tickData :
++                    destinationWorld.levelTickData;
++                destinationData.addEntity(this, false);
++                if (loadedEntities.get()) {
++                    destinationData.loadedEntities.add(this);
++                }
++                if (entityTickList.get()) {
++                    destinationData.entityTickList.add(this);
++                }
++                if (navigatingMobs.get()) {
++                    // we know we are an instanceof Mob already, since we checked this prior
++                    destinationData.navigatingMobs.add((Mob) this);
++                }
++                if (trackerEntities.get()) {
++                    destinationData.trackerEntities.add(this);
++                }
++                if (this instanceof ServerPlayer serverPlayer) {
++                    destinationWorld.networkRouter.connectToWorld(serverPlayer.connection.connection);
++                }
++            };
++            if (minecraftServer.isRegionized()) {
++                // add to regionized task queue
++                minecraftServer.threadedServer().taskQueue.queueTickTaskQueue(
++                    destinationWorld, chunkX, chunkZ, wrap, Priority.BLOCKING
++                );
++            }
++            if (this instanceof ServerPlayer serverPlayer) {
++                destinationWorld.networkRouter.connectToWorld(serverPlayer.connection.connection);
++            }
++            this.getBukkitEntity().taskScheduler.schedule((_) -> {
++                destinationWorld.getChunkSource().updateRegionTicket(chunkX, chunkZ, false, TicketType.TELEPORT);
++            }, null, 1L);
++        }
++        // now we are added to the new data as a replica of what we were prior
++        // it is safe to assume we are only held by 1 single set of tick data
++        // we can now remove the teleport ticket, as we have finished teleporting
++        // cookie end
+         this.movementThisTick.clear();
+     }
+ 
+@@ -4546,9 +_,7 @@
+ 
+     // Paper start - optimise collisions
+     public boolean updateFluidHeightAndDoFluidPushing(final TagKey<Fluid> fluid, final double flowScale) {
+-        if (this.touchingUnloadedChunk()) {
+-            return false;
+-        }
++        // cookie - prevent double chunk retrieving in entity fluid pushing check and fluid height updating
+ 
+         final AABB boundingBox = this.getBoundingBox().deflate(1.0E-3);
+ 
+@@ -4585,7 +_,11 @@
+ 
+         for (int currChunkZ = minChunkZ; currChunkZ <= maxChunkZ; ++currChunkZ) {
+             for (int currChunkX = minChunkX; currChunkX <= maxChunkX; ++currChunkX) {
+-                final net.minecraft.world.level.chunk.LevelChunkSection[] sections = chunkSource.getChunk(currChunkX, currChunkZ, net.minecraft.world.level.chunk.status.ChunkStatus.FULL, false).getSections();
++                // cookie start - Prevent double chunk retrieving in entity fluid pushing check and fluid height updating
++                final net.minecraft.world.level.chunk.ChunkAccess chunk = chunkSource.getChunk(currChunkX, currChunkZ, net.minecraft.world.level.chunk.status.ChunkStatus.FULL, false);
++                if (chunk == null) continue;
++                final net.minecraft.world.level.chunk.LevelChunkSection[] sections = chunk.getSections();
++                // cookie end
+ 
+                 // bound y
+                 for (int currChunkY = minChunkY; currChunkY <= maxChunkY; ++currChunkY) {
+@@ -4726,12 +_,34 @@
+     }
+ 
+     public BlockState getInBlockState() {
++        this.inBlockAndMovementLock.acquire(); // cookie - Threaded Regions
+         if (this.inBlockState == null) {
+             this.inBlockState = this.level().getBlockState(this.blockPosition());
+         }
+ 
++        // cookie start - Threaded Regions
++        try {
+         return this.inBlockState;
+-    }
++        } finally {
++            this.inBlockAndMovementLock.release();
++        }
++        // cookie end
++    }
++    // cookie start
++
++    public @Nullable BlockState getInBlockStateIfLoaded() {
++        this.inBlockAndMovementLock.acquire();
++        if (this.inBlockState == null) {
++            this.inBlockState = this.level.getBlockStateIfLoaded(this.blockPosition());
++        }
++
++        try {
++            return this.inBlockState;
++        } finally {
++            this.inBlockAndMovementLock.release();
++        }
++    }
++    // cookie end
+ 
+     public ChunkPos chunkPosition() {
+         return this.chunkPosition;
+@@ -4742,9 +_,7 @@
+     }
+ 
+     public void setDeltaMovement(Vec3 deltaMovement) {
+-        synchronized (this.posLock) { // Paper - detailed watchdog information
+         this.deltaMovement = deltaMovement;
+-        } // Paper - detailed watchdog information
+     }
+ 
+     public void addDeltaMovement(Vec3 addend) {
+@@ -4829,15 +_,18 @@
+ 
+     public final void setPosRaw(double x, double y, double z, boolean forceBoundingBoxUpdate) {
+         // Paper start - rewrite chunk system
++        this.statusLock.acquire(); // cookie - threadsafe entity status changes
+         if (this.updatingSectionStatus) {
+             LOGGER.error(
+                 "Refusing to update position for entity " + this + " to position " + new Vec3(x, y, z)
+                     + " since it is processing a section status update", new Throwable()
+             );
++            this.statusLock.release(); // cookie - threadsafe entity status changes
+             return;
+         }
+         // Paper end - rewrite chunk system
+         if (!checkPosition(this, x, y, z)) {
++            this.statusLock.release(); // cookie - threadsafe entity status changes
+             return;
+         }
+         // Paper end - Block invalid positions and bounding box
+@@ -4852,15 +_,15 @@
+         }
+         // Paper end - Fix MC-4
+         if (this.position.x != x || this.position.y != y || this.position.z != z) {
+-            synchronized (this.posLock) { // Paper - detailed watchdog information
+             this.position = new Vec3(x, y, z);
+-            } // Paper - detailed watchdog information
+             int floor = Mth.floor(x);
+             int floor1 = Mth.floor(y);
+             int floor2 = Mth.floor(z);
+             if (floor != this.blockPosition.getX() || floor1 != this.blockPosition.getY() || floor2 != this.blockPosition.getZ()) {
+                 this.blockPosition = new BlockPos(floor, floor1, floor2);
++                this.inBlockAndMovementLock.acquire(); // cookie - Threaded Regions
+                 this.inBlockState = null;
++                this.inBlockAndMovementLock.release(); // cookie - Threaded Regions
+                 if (SectionPos.blockToSectionCoord(floor) != this.chunkPosition.x || SectionPos.blockToSectionCoord(floor2) != this.chunkPosition.z) {
+                     this.chunkPosition = new ChunkPos(this.blockPosition);
+                 }
+@@ -4874,6 +_,7 @@
+             this.setBoundingBox(this.makeBoundingBox());
+         }
+         // Paper end - Block invalid positions and bounding box
++        this.statusLock.release(); // cookie - threadsafe entity status changes
+     }
+ 
+     public void checkDespawn() {
+@@ -4971,6 +_,14 @@
+     @Override
+     public final void setRemoved(Entity.RemovalReason removalReason, @Nullable org.bukkit.event.entity.EntityRemoveEvent.Cause cause) { // CraftBukkit - add Bukkit remove cause
+         // Paper start - rewrite chunk system
++        // cookie start - threadsafe entity status changes
++        this.statusLock.acquire();
++        ChunkEntitySlices slices = ((ca.spottedleaf.moonrise.patches.chunk_system.level.ChunkSystemLevel)this.level).moonrise$getEntityLookup().getChunk(this.chunkPosition.x, this.chunkPosition.z);
++        try {
++            if (slices != null) {
++                slices.statusLock.lock();
++            }
++        // cookie end
+         if (!((ca.spottedleaf.moonrise.patches.chunk_system.level.ChunkSystemLevel)this.level).moonrise$getEntityLookup().canRemoveEntity((Entity)(Object)this)) {
+             LOGGER.warn("Entity " + this + " is currently prevented from being removed from the world since it is processing section status updates", new Throwable());
+             return;
+@@ -4994,6 +_,14 @@
+             // Players need to be special cased, because they are regularly removed from the world
+             this.retireScheduler();
+         }
++        // cookie start - threadsafe entity status changes
++        } finally {
++            this.statusLock.release();
++            if (slices != null) {
++                slices.statusLock.unlock();
++            }
++        }
++        // cookie end
+         // Paper end - Folia schedulers
+     }
+ 
+@@ -5009,6 +_,25 @@
+         // we need to force create the bukkit entity so that the scheduler can be retired...
+         this.getBukkitEntity().taskScheduler.retire();
+     }
++    // cookie start - threadsafe entity status changes
++
++    public final void tickScheduler() {
++        // we lock like this to prevent the entity from being removed while we tick its scheduler
++        // if we don't, we run the risk of crashing the server
++        this.statusLock.acquire();
++        try {
++            final org.bukkit.craftbukkit.entity.CraftEntity bukkit = this.getBukkitEntityRaw();
++            if (bukkit != null) {
++                if (!io.cookiemc.cookie.region.ServerRegions.isTickThreadFor(this) || this.isRemoved()) {
++                    return; // already removed, return.
++                }
++                bukkit.taskScheduler.executeTick();
++            }
++        } finally {
++            this.statusLock.release();
++        }
++    }
++    // cookie end
+     // Paper end - Folia schedulers
+ 
+     @Override
+@@ -5036,7 +_,9 @@
+         return this.level;
+     }
+ 
++    private Level oldLevel = this.level; // cookie - cache old level
+     public void setLevel(Level level) {
++        this.oldLevel = this.level; // cookie - cache old level
+         this.level = level;
+     }
+ 

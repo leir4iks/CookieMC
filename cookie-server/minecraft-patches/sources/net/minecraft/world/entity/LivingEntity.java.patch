@@ -1,0 +1,420 @@
+--- a/net/minecraft/world/entity/LivingEntity.java
++++ b/net/minecraft/world/entity/LivingEntity.java
+@@ -10,6 +_,8 @@
+ import com.mojang.logging.LogUtils;
+ import com.mojang.serialization.DataResult;
+ import com.mojang.serialization.Dynamic;
++import io.cookiemc.cookie.Config;
++import io.cookiemc.cookie.region.ServerRegions;
+ import it.unimi.dsi.fastutil.doubles.DoubleDoubleImmutablePair;
+ import it.unimi.dsi.fastutil.objects.Reference2ObjectArrayMap;
+ import it.unimi.dsi.fastutil.objects.Reference2ObjectMap;
+@@ -70,8 +_,6 @@
+ import net.minecraft.tags.ItemTags;
+ import net.minecraft.tags.TagKey;
+ import net.minecraft.util.Mth;
+-import net.minecraft.util.profiling.Profiler;
+-import net.minecraft.util.profiling.ProfilerFiller;
+ import net.minecraft.world.Difficulty;
+ import net.minecraft.world.InteractionHand;
+ import net.minecraft.world.damagesource.CombatRules;
+@@ -198,7 +_,7 @@
+     };
+     private final AttributeMap attributes;
+     public CombatTracker combatTracker = new CombatTracker(this);
+-    public final Map<Holder<MobEffect>, MobEffectInstance> activeEffects = Maps.newHashMap();
++    public final Map<Holder<MobEffect>, MobEffectInstance> activeEffects = Maps.newConcurrentMap(); // cookie - concurrent
+     private final Map<EquipmentSlot, ItemStack> lastEquipmentItems = Util.makeEnumMap(EquipmentSlot.class, slot -> ItemStack.EMPTY);
+     public boolean swinging;
+     private boolean discardFriction = false;
+@@ -264,7 +_,7 @@
+     protected final EntityEquipment equipment;
+     // CraftBukkit start
+     public int expToDrop;
+-    public List<DefaultDrop> drops = new java.util.ArrayList<>(); // Paper - Restore vanilla drops behavior
++    public List<DefaultDrop> drops = new java.util.concurrent.CopyOnWriteArrayList<>(); // Paper - Restore vanilla drops behavior // cookie - concurrent
+     public final org.bukkit.craftbukkit.attribute.CraftAttributeMap craftAttributes;
+     public boolean collides = true;
+     public Set<UUID> collidableExemptions = new java.util.HashSet<>();
+@@ -415,20 +_,21 @@
+             this.getSleepingPos().ifPresent(this::setPosToBed);
+         }
+ 
+-        if (this.level() instanceof ServerLevel serverLevel) {
++        if ((this instanceof Player || this.equipment.lithium$shouldTickEnchantments()) && this.level() instanceof ServerLevel serverLevel) { // cookie - equipment tracking
+             EnchantmentHelper.tickEffects(serverLevel, this);
+         }
+ 
+         super.baseTick();
+-        ProfilerFiller profilerFiller = Profiler.get();
+-        profilerFiller.push("livingEntityBaseTick");
+         if (this.fireImmune() || this.level().isClientSide) {
+             this.clearFire();
+         }
+ 
+         if (this.isAlive() && this.level() instanceof ServerLevel serverLevel1) {
+             boolean flag = this instanceof Player;
+-            if (this.isInWall()) {
++            // cookie start - reduce in wall checks
++            long checkStuckInWallInterval = Config.INSTANCE.entities.checkStuckInWall;
++            if ((checkStuckInWallInterval <= 1 || (tickCount % checkStuckInWallInterval == 0 && (!((float) this.invulnerableTime > (float) this.invulnerableDuration / 2.0F) || !(1.0F <= this.lastHurt)))) && this.isInWall()) {
++            // cookie end
+                 this.hurtServer(serverLevel1, this.damageSources().inWall(), 1.0F);
+             } else if (flag && !serverLevel1.getWorldBorder().isWithinBounds(this.getBoundingBox())) {
+                 double d = serverLevel1.getWorldBorder().getDistanceToBorder(this) + serverLevel1.getWorldBorder().getDamageSafeZone();
+@@ -507,13 +_,24 @@
+             }
+         }
+ 
++        lagCompensation(); // cookie
+         this.tickEffects();
+         this.yHeadRotO = this.yHeadRot;
+         this.yBodyRotO = this.yBodyRot;
+         this.yRotO = this.getYRot();
+         this.xRotO = this.getXRot();
+-        profilerFiller.pop();
+-    }
++    }
++    // cookie start
++
++    private void lagCompensation() {
++        if (!Config.INSTANCE.lagCompensation.enabled || !Config.INSTANCE.lagCompensation.potionEffectAcceleration) return;
++        if (this.level().isClientSide()) return;
++
++        for (int i = 0; i < ServerRegions.getTickData((ServerLevel) this.level()).tpsCalculator.applicableMissedTicks(); i++) { // cookie - Threaded Regions
++            tickEffects();
++        }
++    }
++    // cookie end
+ 
+     @Override
+     protected float getBlockSpeedFactor() {
+@@ -534,10 +_,10 @@
+     }
+ 
+     protected void tryAddFrost() {
+-        if (!this.getBlockStateOnLegacy().isAir()) {
++        if (true) { // cookie - check frozen ticks before landing block
+             int ticksFrozen = this.getTicksFrozen();
+             if (ticksFrozen > 0) {
+-                AttributeInstance attribute = this.getAttribute(Attributes.MOVEMENT_SPEED);
++                AttributeInstance attribute = this.getBlockStateOnLegacy().isAir() ? null : this.getAttribute(Attributes.MOVEMENT_SPEED); // cookie - check frozen ticks before landing block
+                 if (attribute == null) {
+                     return;
+                 }
+@@ -992,14 +_,18 @@
+     }
+ 
+     private void updateSynchronizedMobEffectParticles() {
+-        List<ParticleOptions> list = this.activeEffects
+-            .values()
+-            .stream()
+-            .filter(MobEffectInstance::isVisible)
+-            .map(MobEffectInstance::getParticleOptions)
+-            .toList();
++        // cookie start - replace stream
++        List<ParticleOptions> list = new java.util.ArrayList<>();
++        final Collection<MobEffectInstance> effectsValues = this.activeEffects.values(); // cookie - remove redundant values call
++        for (MobEffectInstance mobEffectInstance : effectsValues) { // cookie - remove redundant values call
++            if (mobEffectInstance.isVisible()) {
++                ParticleOptions particleOptions = mobEffectInstance.getParticleOptions();
++                list.add(particleOptions);
++            }
++        }
++        // cookie end
+         this.entityData.set(DATA_EFFECT_PARTICLES, list);
+-        this.entityData.set(DATA_EFFECT_AMBIENCE_ID, areAllEffectsAmbient(this.activeEffects.values()));
++        this.entityData.set(DATA_EFFECT_AMBIENCE_ID, areAllEffectsAmbient(effectsValues)); // cookie - remove redundant values call
+     }
+ 
+     private void updateGlowingStatus() {
+@@ -1315,13 +_,13 @@
+     }
+ 
+     private void refreshDirtyAttributes() {
+-        Set<AttributeInstance> attributesToUpdate = this.getAttributes().getAttributesToUpdate();
++        // cookie start - threaded tracker
++        int[] attributesToUpdate = this.getAttributes().getAttributesToUpdateIds();
+ 
+-        for (AttributeInstance attributeInstance : attributesToUpdate) {
+-            this.onAttributeUpdated(attributeInstance.getAttribute());
++        for (int attribute : attributesToUpdate) {
++            this.onAttributeUpdated(net.minecraft.core.registries.BuiltInRegistries.ATTRIBUTE.get(attribute).orElseThrow());
+         }
+-
+-        attributesToUpdate.clear();
++        // cookie end - threaded tracker
+     }
+ 
+     protected void onAttributeUpdated(Holder<Attribute> attribute) {
+@@ -1393,7 +_,7 @@
+                 player.setRealHealth(health);
+             }
+ 
+-            player.updateScaledHealth(false);
++            this.entityData.set(LivingEntity.DATA_HEALTH_ID, player.getScaledHealth()); // cookie - fix sprint glitch
+             return;
+         }
+         // CraftBukkit end
+@@ -1555,7 +_,7 @@
+             boolean flag2 = !flag; // CraftBukkit - Ensure to return false if damage is blocked
+             if (flag2) {
+                 this.lastDamageSource = damageSource;
+-                this.lastDamageStamp = this.level().getGameTime();
++                this.lastDamageStamp = this.tickCount; // cookie - use tickCount for damage source timestamps
+ 
+                 for (MobEffectInstance mobEffectInstance : this.getActiveEffects()) {
+                     mobEffectInstance.onMobHurt(level, this, damageSource, amount);
+@@ -1797,7 +_,7 @@
+ 
+     @Nullable
+     public DamageSource getLastDamageSource() {
+-        if (this.level().getGameTime() - this.lastDamageStamp > 40L) {
++        if (this.tickCount - this.lastDamageStamp > 40L) { // cookie - use tickCount for damage source timestamps
+             this.lastDamageSource = null;
+         }
+ 
+@@ -1835,7 +_,9 @@
+         }
+     }
+ 
++    public boolean processingDeath = false; // cookie - item entity spread
+     public void die(DamageSource damageSource) {
++        processingDeath = true; // cookie - item entity spread
+         if (!this.isRemoved() && !this.dead) {
+             Entity entity = damageSource.getEntity();
+             LivingEntity killCredit = this.getKillCredit();
+@@ -1901,6 +_,7 @@
+             }
+             // Paper end
+         }
++        processingDeath = false; // cookie
+     }
+ 
+     protected void createWitherRose(@Nullable LivingEntity entitySource) {
+@@ -2151,13 +_,30 @@
+     public Optional<BlockPos> getLastClimbablePos() {
+         return this.lastClimbablePos;
+     }
++    // cookie start - cache on climbable check
++
++    private boolean cachedOnClimbable = false;
++    private BlockPos lastClimbingPosition = null;
++
++    public boolean onClimbableCached() {
++        if (!this.blockPosition().equals(this.lastClimbingPosition)) {
++            this.cachedOnClimbable = this.onClimbable();
++            this.lastClimbingPosition = this.blockPosition();
++        }
++
++        return this.cachedOnClimbable;
++    }
++    // cookie end
+ 
+     public boolean onClimbable() {
+         if (this.isSpectator()) {
+             return false;
+         } else {
+             BlockPos blockPos = this.blockPosition();
+-            BlockState inBlockState = this.getInBlockState();
++            // cookie start - don't load chunks to check if on climbable
++            BlockState inBlockState = this.getInBlockStateIfLoaded();
++            if (inBlockState == null) return false;
++            // cookie end
+             if (inBlockState.is(BlockTags.CLIMBABLE)) {
+                 this.lastClimbablePos = Optional.of(blockPos);
+                 return true;
+@@ -2541,10 +_,10 @@
+ 
+     @Nullable
+     public LivingEntity getKillCredit() {
+-        if (this.lastHurtByPlayer != null) {
++        if (this.lastHurtByPlayer != null && io.cookiemc.cookie.region.ServerRegions.isTickThreadFor(this.lastHurtByPlayer.getEntity(this.level(), Player.class))) { // cookie - Threaded Regions
+             return this.lastHurtByPlayer.getEntity(this.level(), Player.class);
+         } else {
+-            return this.lastHurtByMob != null ? this.lastHurtByMob.getEntity(this.level(), LivingEntity.class) : null;
++            return this.lastHurtByMob != null && io.cookiemc.cookie.region.ServerRegions.isTickThreadFor(this.lastHurtByMob.getEntity(this.level(), LivingEntity.class)) ? this.lastHurtByMob.getEntity(this.level(), LivingEntity.class) : null; // cookie - Threaded Regions
+         }
+     }
+ 
+@@ -2623,7 +_,7 @@
+         }
+ 
+         this.lastDamageSource = damageSource;
+-        this.lastDamageStamp = this.level().getGameTime();
++        this.lastDamageStamp = this.tickCount; // cookie - use tickCount for damage source timestamps
+     }
+ 
+     @Override
+@@ -2730,6 +_,7 @@
+     }
+ 
+     protected void updateSwingTime() {
++        if (!this.swinging && this.swingTime == 0) return; // cookie - skip unnecessary calculations if player is not flying or swing
+         int currentSwingDuration = this.getCurrentSwingDuration();
+         if (this.swinging) {
+             this.swingTime++;
+@@ -3024,7 +_,7 @@
+                 f2 *= 0.5F;
+             }
+ 
+-            if (f2 > 0.0F) {
++            if (f2 > 0.0F && (!Config.INSTANCE.fixes.mc136249 || autoSpinAttackTicks == 0)) { // cookie - mc136249
+                 f += (0.54600006F - f) * f2;
+                 f1 += (this.getSpeed() - f1) * f2;
+             }
+@@ -3298,11 +_,7 @@
+             f1 = this.getYRot();
+         }
+ 
+-        ProfilerFiller profilerFiller = Profiler.get();
+-        profilerFiller.push("headTurn");
+         this.tickHeadTurn(f1);
+-        profilerFiller.pop();
+-        profilerFiller.push("rangeChecks");
+ 
+         // Paper start - stop large pitch and yaw changes from crashing the server
+         this.yRotO += Math.round((this.getYRot() - this.yRotO) / 360.0F) * 360.0F;
+@@ -3314,7 +_,6 @@
+         this.yHeadRotO += Math.round((this.yHeadRot - this.yHeadRotO) / 360.0F) * 360.0F;
+         // Paper end - stop large pitch and yaw changes from crashing the server
+ 
+-        profilerFiller.pop();
+         if (this.isFallFlying()) {
+             this.fallFlyTicks++;
+         } else {
+@@ -3332,6 +_,7 @@
+     public void detectEquipmentUpdates() {
+         Map<EquipmentSlot, ItemStack> map = this.collectEquipmentChanges();
+         if (map != null) {
++            if (!(this instanceof net.minecraft.world.entity.player.Player)) this.equipment.lithium$onEquipmentChangesSent();; // cookie - equipment tracking
+             this.handleHandSwap(map);
+             if (!map.isEmpty()) {
+                 this.handleEquipmentChanges(map);
+@@ -3341,6 +_,10 @@
+ 
+     @Nullable
+     private Map<EquipmentSlot, ItemStack> collectEquipmentChanges() {
++        // cookie start - equipment tracking
++        final boolean isArmorStandUpdateNoTick = this instanceof net.minecraft.world.entity.decoration.ArmorStand stand && !stand.canTick && stand.noTickEquipmentDirty;
++        if (!isArmorStandUpdateNoTick && !this.equipment.lithium$hasUnsentEquipmentChanges()) return null;
++        // cookie end - equipment tracking
+         Map<EquipmentSlot, ItemStack> map = null;
+         // Paper start - EntityEquipmentChangedEvent
+         record EquipmentChangeImpl(org.bukkit.inventory.ItemStack oldItem, org.bukkit.inventory.ItemStack newItem) implements io.papermc.paper.event.entity.EntityEquipmentChangedEvent.EquipmentChange {
+@@ -3490,21 +_,15 @@
+         }
+ 
+         this.setDeltaMovement(d, d1, d2);
+-        ProfilerFiller profilerFiller = Profiler.get();
+-        profilerFiller.push("ai");
+         this.applyInput();
+         if (this.isImmobile()) {
+             this.jumping = false;
+             this.xxa = 0.0F;
+             this.zza = 0.0F;
+         } else if (this.isEffectiveAi() && !this.level().isClientSide) {
+-            profilerFiller.push("newAi");
+             this.serverAiStep();
+-            profilerFiller.pop();
+         }
+ 
+-        profilerFiller.pop();
+-        profilerFiller.push("jump");
+         if (this.jumping && this.isAffectedByFluids()) {
+             double fluidHeight;
+             if (this.isInLava()) {
+@@ -3533,8 +_,6 @@
+             this.noJumpDelay = 0;
+         }
+ 
+-        profilerFiller.pop();
+-        profilerFiller.push("travel");
+         if (this.isFallFlying()) {
+             this.updateFallFlying();
+         }
+@@ -3559,9 +_,7 @@
+             this.calculateEntityAnimation(this instanceof FlyingAnimal);
+         }
+ 
+-        profilerFiller.pop();
+         if (this.level() instanceof ServerLevel serverLevel) {
+-            profilerFiller.push("freezing");
+             if ((!this.isInPowderSnow || !this.canFreeze()) && !this.freezeLocked) { // Paper - Freeze Tick Lock API
+                 this.setTicksFrozen(Math.max(0, this.getTicksFrozen() - 2));
+             }
+@@ -3571,18 +_,14 @@
+             if (this.tickCount % 40 == 0 && this.isFullyFrozen() && this.canFreeze()) {
+                 this.hurtServer(serverLevel, this.damageSources().freeze(), 1.0F);
+             }
+-
+-            profilerFiller.pop();
+         }
+ 
+-        profilerFiller.push("push");
+         if (this.autoSpinAttackTicks > 0) {
+             this.autoSpinAttackTicks--;
+             this.checkAutoSpinAttack(boundingBox, this.getBoundingBox());
+         }
+ 
+         this.pushEntities();
+-        profilerFiller.pop();
+         // Paper start - Add EntityMoveEvent
+         // Purpur start - Ridables
+         if (this.xo != this.getX() || this.yo != this.getY() || this.zo != this.getZ() || this.yRotO != this.getYRot() || this.xRotO != this.getXRot()) {
+@@ -3657,6 +_,7 @@
+     protected void updateFallFlying() {
+         this.checkSlowFallDistance();
+         if (!this.level().isClientSide) {
++            if (!this.isFallFlying() && this.fallFlyTicks == 0) return; // cookie - skip unnecessary calculations if player is not flying or swing
+             if (!this.canGlide()) {
+                 if (this.getSharedFlag(7) != false && !CraftEventFactory.callToggleGlideEvent(this, false).isCancelled()) // CraftBukkit
+                 this.setSharedFlag(7, false);
+@@ -3709,6 +_,7 @@
+     }
+ 
+     protected void pushEntities() {
++        if (Config.INSTANCE.entities.onlyPlayersPushEntities && !(this instanceof ServerPlayer)) return; // cookie - only players push entities config
+         // Paper start - don't run getEntities if we're not going to use its result
+         if (!this.isPushable()) {
+             return;
+@@ -3796,6 +_,11 @@
+     public void stopRiding() {
+         // Paper start - Force entity dismount during teleportation
+         this.stopRiding(false);
++        // cookie start
++        if (this instanceof Mob navigatingEntity) {
++            navigatingEntity.lithium$updateNavigationRegistration();
++        }
++        // cookie end
+     }
+ 
+     @Override
+@@ -4009,6 +_,18 @@
+                 );
+             }
+ 
++            // cookie start - item entity spread
++            if (processingDeath) {
++                float halfedRandom = this.random.nextFloat() * 0.5F;
++                float piRandom = this.random.nextFloat() * (float) (Math.PI * 2);
++                double factor = Config.INSTANCE.entities.itemEntitySpreadFactor;
++                itemEntity.setDeltaMovement(
++                    (-Mth.sin(piRandom) * halfedRandom) * factor,
++                    0.2F * factor,
++                    (Mth.cos(piRandom) * halfedRandom) * factor
++                );
++            }
++            // cookie end
+             return itemEntity;
+         }
+     }
+@@ -4323,7 +_,7 @@
+         boolean flag = false;
+         BlockPos blockPos = BlockPos.containing(x, y, z);
+         Level level = this.level();
+-        if (level.hasChunkAt(blockPos)) {
++        if (io.cookiemc.cookie.region.ServerRegions.isTickThreadFor(level, blockPos) && level.hasChunkAt(blockPos)) { // cookie - Threaded Regions
+             boolean flag1 = false;
+ 
+             while (!flag1 && blockPos.getY() > level.getMinY()) {

@@ -1,0 +1,61 @@
+--- a/src/main/java/io/papermc/paper/threadedregions/EntityScheduler.java
++++ b/src/main/java/io/papermc/paper/threadedregions/EntityScheduler.java
+@@ -43,12 +_,25 @@
+     private static final long RETIRED_TICK_COUNT = -1L;
+     private final Object stateLock = new Object();
+     private final Long2ObjectOpenHashMap<List<ScheduledTask>> oneTimeDelayed = new Long2ObjectOpenHashMap<>();
++    // cookie start - optimize entity scheduler
++    private int length = 0;
++    public boolean hasTasks() {
++        return this.length > 0;
++    }
++    // cookie end
+ 
+     private final ArrayDeque<ScheduledTask> currentlyExecuting = new ArrayDeque<>();
+ 
+     public EntityScheduler(final CraftEntity entity) {
+         this.entity = Validate.notNull(entity);
+     }
++    // cookie start - Threaded Regions
++    public boolean isRetired() {
++        synchronized (this.stateLock) {
++            return this.tickCount == RETIRED_TICK_COUNT;
++        }
++    }
++    // cookie end
+ 
+     /**
+      * Retires the scheduler, preventing new tasks from being scheduled and invoking the retired callback
+@@ -127,6 +_,7 @@
+             this.oneTimeDelayed.computeIfAbsent(this.tickCount + Math.max(1L, delay), (final long keyInMap) -> {
+                 return new ArrayList<>();
+             }).add(task);
++            this.length += 1;
+         }
+ 
+         return true;
+@@ -144,7 +_,7 @@
+         final List<ScheduledTask> toRun;
+         synchronized (this.stateLock) {
+             if (this.tickCount == RETIRED_TICK_COUNT) {
+-                throw new IllegalStateException("Ticking retired scheduler");
++                return; // cookie - the entity can be removed concurrently, do not crash the server because of this.
+             }
+             ++this.tickCount;
+             if (this.oneTimeDelayed.isEmpty()) {
+@@ -162,13 +_,14 @@
+ 
+         // Note: It is allowed for the tasks executed to retire the entity in a given task.
+         for (int i = 0, len = this.currentlyExecuting.size(); i < len; ++i) {
+-            if (!TickThread.isTickThreadFor(thisEntity)) {
++            if (!io.cookiemc.cookie.region.ServerRegions.isTickThreadFor(thisEntity)) { // cookie - Threaded Regions
+                 // tp has been queued sync by one of the tasks
+                 // in this case, we need to delay the tasks for next tick
+                 break;
+             }
+             final ScheduledTask task = this.currentlyExecuting.pollFirst();
+ 
++            if (task == null) break; // cookie - break if null
+             if (this.tickCount != RETIRED_TICK_COUNT) {
+                 ((Consumer<Entity>)task.run).accept(thisEntity);
+             } else {

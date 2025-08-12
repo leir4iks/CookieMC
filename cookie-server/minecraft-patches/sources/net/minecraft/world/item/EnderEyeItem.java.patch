@@ -1,0 +1,61 @@
+--- a/net/minecraft/world/item/EnderEyeItem.java
++++ b/net/minecraft/world/item/EnderEyeItem.java
+@@ -105,14 +_,47 @@
+         } else {
+             player.startUsingItem(hand);
+             if (level instanceof ServerLevel serverLevel) {
+-                BlockPos blockPos = serverLevel.findNearestMapStructure(StructureTags.EYE_OF_ENDER_LOCATED, player.blockPosition(), 100, false);
++                // cookie start - Asynchronous locator
++                BlockPos blockPos;
++                if (io.cookiemc.cookie.Config.INSTANCE.asyncLocator.enabled) {
++                    blockPos = BlockPos.ZERO;
++                } else {
++                    blockPos = serverLevel.findNearestMapStructure(StructureTags.EYE_OF_ENDER_LOCATED, player.blockPosition(), 100, false);
++                }
++                // cookie end - Asynchronous locator
+                 if (blockPos == null) {
+                     return InteractionResult.CONSUME;
+                 }
+ 
+                 EyeOfEnder eyeOfEnder = new EyeOfEnder(level, player.getX(), player.getY(0.5), player.getZ());
++
++                // cookie start - Asynchronous locator
++                final boolean isAsyncLocatorEnabled = io.cookiemc.cookie.Config.INSTANCE.asyncLocator.enabled;
++
++                if (isAsyncLocatorEnabled) {
++                    eyeOfEnder.asyncLocator$locateTaskOngoing = true;
++                    io.cookiemc.cookie.locate.AsyncLocator.locate(
++                        serverLevel,
++                        StructureTags.EYE_OF_ENDER_LOCATED,
++                        player.blockPosition(),
++                        100,
++                        false
++                    ).thenOnServerThread(pos -> {
++                        eyeOfEnder.asyncLocator$locateTaskOngoing = false;
++                        if (pos != null) {
++                            eyeOfEnder.signalTo(pos.getBlockPos());
++                            CriteriaTriggers.USED_ENDER_EYE.trigger((ServerPlayer) player, pos.getBlockPos());
++                            player.awardStat(Stats.ITEM_USED.get(this));
++                        } else {
++                            // Set the entity's life to long enough that it dies
++                            eyeOfEnder.life = Integer.MAX_VALUE - 100;
++                        }
++                    });
++                }
++                // cookie end - Asynchronous locator
++
+                 eyeOfEnder.setItem(itemInHand);
+-                eyeOfEnder.signalTo(blockPos);
++                if (!isAsyncLocatorEnabled) eyeOfEnder.signalTo(blockPos); // cookie - Asynchronous locator
+                 level.gameEvent(GameEvent.PROJECTILE_SHOOT, eyeOfEnder.position(), GameEvent.Context.of(player));
+                 // CraftBukkit start
+                 if (!level.addFreshEntity(eyeOfEnder)) {
+@@ -126,7 +_,7 @@
+                 float f = Mth.lerp(level.random.nextFloat(), 0.33F, 0.5F);
+                 level.playSound(null, player.getX(), player.getY(), player.getZ(), SoundEvents.ENDER_EYE_LAUNCH, SoundSource.NEUTRAL, 1.0F, f);
+                 itemInHand.consume(1, player);
+-                player.awardStat(Stats.ITEM_USED.get(this));
++                if (!isAsyncLocatorEnabled) player.awardStat(Stats.ITEM_USED.get(this)); // cookie - Asynchronous locator
+             }
+ 
+             return InteractionResult.SUCCESS_SERVER;

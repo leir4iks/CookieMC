@@ -1,0 +1,125 @@
+--- a/ca/spottedleaf/moonrise/common/misc/NearbyPlayers.java
++++ b/ca/spottedleaf/moonrise/common/misc/NearbyPlayers.java
+@@ -59,23 +_,33 @@
+     public static final int GENERAL_REALLY_SMALL_AREA_VIEW_DISTANCE_BLOCKS = (GENERAL_REALLY_SMALL_VIEW_DISTANCE << 4);
+ 
+     private final ServerLevel world;
+-    private final Reference2ReferenceOpenHashMap<ServerPlayer, TrackedPlayer[]> players = new Reference2ReferenceOpenHashMap<>();
+-    private final Long2ReferenceOpenHashMap<TrackedChunk> byChunk = new Long2ReferenceOpenHashMap<>();
+-    private final Long2ReferenceOpenHashMap<ReferenceList<ServerPlayer>>[] directByChunk = new Long2ReferenceOpenHashMap[TOTAL_MAP_TYPES];
++    private final it.unimi.dsi.fastutil.objects.Reference2ReferenceMap<ServerPlayer, TrackedPlayer[]> players = it.unimi.dsi.fastutil.objects.Reference2ReferenceMaps.synchronize(new Reference2ReferenceOpenHashMap<>()); // cookie - synchronized
++    private final it.unimi.dsi.fastutil.longs.Long2ReferenceMap<TrackedChunk> byChunk = it.unimi.dsi.fastutil.longs.Long2ReferenceMaps.synchronize(new Long2ReferenceOpenHashMap<>()); // cookie - synchronized
++    private final it.unimi.dsi.fastutil.longs.Long2ReferenceMap<ReferenceList<ServerPlayer>>[] directByChunk = new it.unimi.dsi.fastutil.longs.Long2ReferenceMap[TOTAL_MAP_TYPES]; // cookie - synchronized
+     {
+         for (int i = 0; i < this.directByChunk.length; ++i) {
+-            this.directByChunk[i] = new Long2ReferenceOpenHashMap<>();
++            this.directByChunk[i] = it.unimi.dsi.fastutil.longs.Long2ReferenceMaps.synchronize(new Long2ReferenceOpenHashMap<>()); // cookie - synchronized
+         }
+     }
++    // cookie start - Threaded Regions
++    public boolean hasPlayer(ServerPlayer serverPlayer) {
++        return this.players.containsKey(serverPlayer);
++    }
++    // cookie end
+ 
+     public NearbyPlayers(final ServerLevel world) {
+         this.world = world;
+     }
+ 
+-    public void addPlayer(final ServerPlayer player) {
++    public synchronized void addPlayer(final ServerPlayer player) { // cookie - synchronized
++        // cookie start - Threaded Regions
++        if (player.npr.get() != this) {
++            player.npr.set(this);
++        } else return; // already has player
++        // cookie end
+         final TrackedPlayer[] newTrackers = new TrackedPlayer[TOTAL_MAP_TYPES];
+         if (this.players.putIfAbsent(player, newTrackers) != null) {
+-            throw new IllegalStateException("Already have player " + player);
++            return; // cookie - just silence, can be run twice on teleport/add
+         }
+ 
+         final ChunkPos chunk = player.chunkPosition();
+@@ -89,7 +_,8 @@
+         this.tickPlayer(player);
+     }
+ 
+-    public void removePlayer(final ServerPlayer player) {
++    public synchronized void removePlayer(final ServerPlayer player) { // cookie - synchronized
++        if (player.npr.get() == this) player.npr.set(null); // cookie - Threaded Regions
+         final TrackedPlayer[] players = this.players.remove(player);
+         if (players == null) {
+             return; // May be called during teleportation before the player is actually placed
+@@ -100,7 +_,7 @@
+         }
+     }
+ 
+-    public void clear() {
++    public synchronized void clear() { // cookie - synchronized
+         if (this.players.isEmpty()) {
+             return;
+         }
+@@ -110,7 +_,16 @@
+         }
+     }
+ 
+-    public void tickPlayer(final ServerPlayer player) {
++    public synchronized void tickPlayer(final ServerPlayer player) { // cookie - synchronized
++        // cookie start - Threaded Regions
++        if (player.npr.get() != this) {
++            // player owned by a diff nearbyplayers ref... what?
++            if (player.npr.get() != null) {
++                player.npr.get().removePlayer(player);
++            } // else | no need to remove, was already removed
++            this.addPlayer(player);
++        }
++        // cookie end
+         final TrackedPlayer[] players = this.players.get(player);
+         if (players == null) {
+             throw new IllegalStateException("Don't have player " + player);
+@@ -121,13 +_,13 @@
+         players[NearbyMapType.GENERAL.ordinal()].update(chunk.x, chunk.z, GENERAL_AREA_VIEW_DISTANCE);
+         players[NearbyMapType.GENERAL_SMALL.ordinal()].update(chunk.x, chunk.z, GENERAL_SMALL_VIEW_DISTANCE);
+         players[NearbyMapType.GENERAL_REALLY_SMALL.ordinal()].update(chunk.x, chunk.z, GENERAL_REALLY_SMALL_VIEW_DISTANCE);
+-        players[NearbyMapType.TICK_VIEW_DISTANCE.ordinal()].update(chunk.x, chunk.z, PlatformHooks.get().getTickViewDistance(player));
++        players[NearbyMapType.TICK_VIEW_DISTANCE.ordinal()].update(chunk.x, chunk.z, io.cookiemc.cookie.Config.INSTANCE.tickDistanceMaps.enableNearbyPlayersTickViewDistanceOverride ? io.cookiemc.cookie.Config.INSTANCE.tickDistanceMaps.nearbyPlayersTickDistance : PlatformHooks.get().getTickViewDistance(player)); // cookie - tick distance maps
+         players[NearbyMapType.VIEW_DISTANCE.ordinal()].update(chunk.x, chunk.z, PlatformHooks.get().getViewDistance(player));
+         players[NearbyMapType.SPAWN_RANGE.ordinal()].update(chunk.x, chunk.z, ChunkTickConstants.PLAYER_SPAWN_TRACK_RANGE); // Moonrise - chunk tick iteration
+     }
+ 
+     public TrackedChunk getChunk(final ChunkPos pos) {
+-        return this.byChunk.get(CoordinateUtils.getChunkKey(pos));
++        return this.byChunk.get(pos.longKey); // cookie - cache chunk key
+     }
+ 
+     public TrackedChunk getChunk(final BlockPos pos) {
+@@ -143,7 +_,7 @@
+     }
+ 
+     public ReferenceList<ServerPlayer> getPlayers(final ChunkPos pos, final NearbyMapType type) {
+-        return this.directByChunk[type.ordinal()].get(CoordinateUtils.getChunkKey(pos));
++        return this.directByChunk[type.ordinal()].get(pos.longKey); // cookie - cache chunk key
+     }
+ 
+     public ReferenceList<ServerPlayer> getPlayersByChunk(final int chunkX, final int chunkZ, final NearbyMapType type) {
+@@ -244,7 +_,7 @@
+                 created.addPlayer(parameter, type);
+                 type.addTo(parameter, NearbyPlayers.this.world, chunkX, chunkZ);
+ 
+-                ((ChunkSystemLevel)NearbyPlayers.this.world).moonrise$requestChunkData(chunkKey).nearbyPlayers = created;
++                // ((ChunkSystemLevel)NearbyPlayers.this.world).moonrise$requestChunkData(chunkKey).nearbyPlayers = created; // cookie - Threaded Regions
+             }
+         }
+ 
+@@ -263,10 +_,7 @@
+ 
+             if (chunk.isEmpty()) {
+                 NearbyPlayers.this.byChunk.remove(chunkKey);
+-                final ChunkData chunkData = ((ChunkSystemLevel)NearbyPlayers.this.world).moonrise$releaseChunkData(chunkKey);
+-                if (chunkData != null) {
+-                    chunkData.nearbyPlayers = null;
+-                }
++                // cookie - Threaded Regions
+             }
+         }
+     }

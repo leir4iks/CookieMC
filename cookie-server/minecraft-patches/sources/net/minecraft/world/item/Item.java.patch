@@ -1,0 +1,33 @@
+--- a/net/minecraft/world/item/Item.java
++++ b/net/minecraft/world/item/Item.java
+@@ -10,6 +_,8 @@
+ import java.util.Optional;
+ import java.util.function.Consumer;
+ import javax.annotation.Nullable;
++import io.cookiemc.cookie.Config;
++import io.cookiemc.cookie.util.TPSUtil;
+ import net.minecraft.SharedConstants;
+ import net.minecraft.Util;
+ import net.minecraft.core.BlockPos;
+@@ -287,6 +_,21 @@
+     }
+ 
+     public int getUseDuration(ItemStack stack, LivingEntity entity) {
++    // cookie start - lag compensation
++        int original = getUseDuration0(stack, entity);
++        if (entity.level() instanceof ServerLevel serverLevel) {
++            return lagCompensation(original, serverLevel);
++        }
++        return original;
++    }
++
++    private int lagCompensation(int original, ServerLevel level) {
++        if (!Config.INSTANCE.lagCompensation.enabled || !Config.INSTANCE.lagCompensation.eatingAcceleration || original == 0) return original;
++        return TPSUtil.tt20(original, true, level);
++    }
++
++    private int getUseDuration0(ItemStack stack, LivingEntity entity) {
++    // cookie end
+         Consumable consumable = stack.get(DataComponents.CONSUMABLE);
+         if (consumable != null) {
+             return consumable.consumeTicks();

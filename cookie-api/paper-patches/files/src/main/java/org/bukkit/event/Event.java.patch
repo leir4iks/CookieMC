@@ -1,0 +1,26 @@
+--- a/src/main/java/org/bukkit/event/Event.java
++++ b/src/main/java/org/bukkit/event/Event.java
+@@ -14,6 +_,7 @@
+  * @see PluginManager#registerEvents(Listener,Plugin)
+  */
+ public abstract class Event {
++    public static boolean SHORTCUT_CALL = false; // cookie - don't call if the event has no registered listeners
+ 
+     private String name;
+     private final boolean isAsync;
+@@ -43,6 +_,15 @@
+      * @return {@code false} if event was cancelled, if cancellable. otherwise {@code true}.
+      */
+     public boolean callEvent() {
++        // cookie start - don't call if the event has no registered listeners
++        if (SHORTCUT_CALL && this.getHandlers().getRegisteredListeners().length == 0) {
++            if (this instanceof Cancellable) {
++                return !((Cancellable) this).isCancelled();
++            } else {
++                return true;
++            }
++        }
++        // cookie end
+         Bukkit.getPluginManager().callEvent(this);
+         if (this instanceof Cancellable) {
+             return !((Cancellable) this).isCancelled();
