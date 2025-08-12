@@ -1,0 +1,11 @@
+--- a/ca/spottedleaf/moonrise/patches/chunk_system/ticket/ChunkSystemTicketType.java
++++ b/ca/spottedleaf/moonrise/patches/chunk_system/ticket/ChunkSystemTicketType.java
+@@ -15,7 +_,7 @@
+ 
+     public static <T> TicketType create(final String name, final Comparator<T> identifierComparator, final long timeout) {
+         // note: cannot persist unless registered
+-        final TicketType ret = new TicketType(timeout, false, TicketType.TicketUse.LOADING_AND_SIMULATION);
++        final TicketType ret = new TicketType(timeout, false, TicketType.TicketUse.LOADING_AND_SIMULATION).setName(name); // Canvas - add name for debug
+ 
+         ((ChunkSystemTicketType<T>)(Object)ret).moonrise$setIdentifierComparator(identifierComparator);
+ 

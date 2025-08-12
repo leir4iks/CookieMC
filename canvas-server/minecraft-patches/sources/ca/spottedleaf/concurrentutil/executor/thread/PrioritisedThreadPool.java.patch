@@ -1,0 +1,11 @@
+--- a/ca/spottedleaf/concurrentutil/executor/thread/PrioritisedThreadPool.java
++++ b/ca/spottedleaf/concurrentutil/executor/thread/PrioritisedThreadPool.java
+@@ -12,7 +_,7 @@
+ import java.util.concurrent.atomic.AtomicLong;
+ import java.util.function.Consumer;
+ 
+-public final class PrioritisedThreadPool {
++public class PrioritisedThreadPool { // Canvas - mutable
+ 
+     private static final Logger LOGGER = LoggerFactory.getLogger(PrioritisedThreadPool.class);
+ 

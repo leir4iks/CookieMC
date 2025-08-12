@@ -1,0 +1,43 @@
+--- a/net/minecraft/world/entity/ai/goal/RemoveBlockGoal.java
++++ b/net/minecraft/world/entity/ai/goal/RemoveBlockGoal.java
+@@ -22,7 +_,7 @@
+ import net.minecraft.world.phys.Vec3;
+ 
+ public class RemoveBlockGoal extends MoveToBlockGoal {
+-    private final Block blockToRemove;
++    public final Block blockToRemove; // Canvas - private -> public
+     private final Mob removerMob;
+     private int ticksSinceReachedGoal;
+     private static final int WAIT_AFTER_BLOCK_FOUND = 20;
+@@ -37,10 +_,17 @@
+     public boolean canUse() {
+         if (!getServerLevel(this.removerMob).getGameRules().getBoolean(GameRules.RULE_MOBGRIEFING, getServerLevel(this.removerMob).purpurConfig.zombieMobGriefingOverride)) { // Purpur - Add mobGriefing override to everything affected
+             return false;
+-        } else if (this.nextStartTick > 0) {
++        }
++        // Canvas start - Async target finding
++        if (poll()) {
++            this.nextStartTick = reducedTickDelay(20);
++            return true;
++        }
++        // Canvas end - Async target finding
++        if (this.nextStartTick > 0) {
+             this.nextStartTick--;
+             return false;
+-        } else if (this.findNearestBlock()) {
++        } else if (this.findNearestBlockAsync()) { // Canvas - Async target finding
+             this.nextStartTick = reducedTickDelay(20);
+             return true;
+         } else {
+@@ -155,4 +_,11 @@
+             && chunk.getBlockState(pos.above()).isAir()
+             && chunk.getBlockState(pos.above(2)).isAir();
+     }
++
++    // Canvas start - Async target finding
++    @Override
++    protected TypeToCheck typeToCheck() {
++        return TypeToCheck.RemoveBlock;
++    }
++    // Canvas end - Async target finding
+ }

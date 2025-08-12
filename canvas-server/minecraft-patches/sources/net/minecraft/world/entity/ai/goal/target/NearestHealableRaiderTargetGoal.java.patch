@@ -1,0 +1,25 @@
+--- a/net/minecraft/world/entity/ai/goal/target/NearestHealableRaiderTargetGoal.java
++++ b/net/minecraft/world/entity/ai/goal/target/NearestHealableRaiderTargetGoal.java
+@@ -23,12 +_,20 @@
+ 
+     @Override
+     public boolean canUse() {
+-        if (this.cooldown > 0 || !this.mob.getRandom().nextBoolean()) {
++        // Canvas start - Async target finding
++        if (this.cooldown > 0) {
++            return false;
++        }
++        if (poll()) {
++            return ((Raider) this.mob).hasActiveRaid();
++        }
++        if (/*this.cooldown > 0 || */ !this.mob.getRandom().nextBoolean()) {
++        // Canvas end - Async target finding
+             return false;
+         } else if (!((Raider)this.mob).hasActiveRaid()) {
+             return false;
+         } else {
+-            this.findTarget();
++            this.findTargetAsync(); // Canvas - Async target finding
+             return this.target != null;
+         }
+     }

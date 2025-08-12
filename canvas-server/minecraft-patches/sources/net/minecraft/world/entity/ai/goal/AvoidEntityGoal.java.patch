@@ -1,0 +1,65 @@
+--- a/net/minecraft/world/entity/ai/goal/AvoidEntityGoal.java
++++ b/net/minecraft/world/entity/ai/goal/AvoidEntityGoal.java
+@@ -67,15 +_,24 @@
+ 
+     @Override
+     public boolean canUse() {
++        // Canvas start - Async target finding
++        if (io.canvasmc.canvas.Config.INSTANCE.entities.asyncTargetFinding.searchEntity) {
++            if (!poll()) {
++                getNearestEntityAsync();
++                return false;
++            }
++        } else {
+         this.toAvoid = getServerLevel(this.mob)
+             .getNearestEntity(
+                 this.mob.level().getEntitiesOfClass(this.avoidClass, this.mob.getBoundingBox().inflate(this.maxDist, 3.0, this.maxDist), livingEntity -> true),
+                 this.avoidEntityTargeting,
+                 this.mob,
+                 this.mob.getX(),
+-                this.mob.getY(),
++                this.mob.getEyeY(), // Canvas - Async target finding
+                 this.mob.getZ()
+             );
++        }
++        // Canvas end - Async target finding
+         if (this.toAvoid == null) {
+             return false;
+         } else {
+@@ -90,6 +_,36 @@
+             }
+         }
+     }
++
++    // Canvas start - Async target finding
++    private boolean poll() {
++        if (!(this.mob.getGoalCtx().result() instanceof LivingEntity target)) return false;
++        var serverLevel = getServerLevel(this.mob);
++        if (serverLevel == null || !target.isAlive() || !this.avoidEntityTargeting.test(serverLevel, this.mob, target)) return false;
++        this.toAvoid = (T) target;
++        return true;
++    }
++
++    private void getNearestEntityAsync() {
++        final var mob = this.mob;
++        final var ctx = mob.getGoalCtx();
++        if (!ctx.state) return;
++        final double x = mob.getX();
++        final double y = mob.getEyeY();
++        final double z = mob.getZ();
++        final var serverLevel = getServerLevel(mob);
++        final var avoidClass = this.avoidClass;
++        final var bound = mob.getBoundingBox().inflate(this.maxDist, 3.0, this.maxDist);
++        ctx.wake = () -> serverLevel.getNearestEntity(
++            serverLevel.getEntitiesOfClass(avoidClass, bound, livingEntity -> true),
++            avoidEntityTargeting,
++            mob,
++            x,
++            y,
++            z
++        );
++    }
++    // Canvas end - Async target finding
+ 
+     @Override
+     public boolean canContinueToUse() {

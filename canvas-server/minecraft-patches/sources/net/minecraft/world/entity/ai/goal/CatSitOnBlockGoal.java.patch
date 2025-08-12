@@ -1,0 +1,14 @@
+--- a/net/minecraft/world/entity/ai/goal/CatSitOnBlockGoal.java
++++ b/net/minecraft/world/entity/ai/goal/CatSitOnBlockGoal.java
+@@ -54,4 +_,11 @@
+                     || blockState.is(BlockTags.BEDS, state -> state.getOptionalValue(BedBlock.PART).map(bedPart -> bedPart != BedPart.HEAD).orElse(true));
+         }
+     }
++
++    // Canvas start - Async target finding
++    @Override
++    protected TypeToCheck typeToCheck() {
++        return TypeToCheck.CatSit;
++    }
++    // Canvas end - Async target finding
+ }

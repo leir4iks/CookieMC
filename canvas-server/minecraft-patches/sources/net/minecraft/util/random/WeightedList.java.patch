@@ -1,0 +1,27 @@
+--- a/net/minecraft/util/random/WeightedList.java
++++ b/net/minecraft/util/random/WeightedList.java
+@@ -19,6 +_,7 @@
+     private final List<Weighted<E>> items;
+     @Nullable
+     private final WeightedList.Selector<E> selector;
++    private List<Weighted<E>> entryHashList; // Canvas
+ 
+     protected WeightedList(List<? extends Weighted<E>> items) { // Paper - protected
+         this.items = List.copyOf(items);
+@@ -30,6 +_,7 @@
+         } else {
+             this.selector = new WeightedList.Compact<>(this.items);
+         }
++        this.entryHashList = this.items.size() > 4 ? this.items : java.util.Collections.unmodifiableList(new io.canvasmc.canvas.util.HashedReferenceList<>(this.items)); // Canvas
+     }
+ 
+     public static <E> WeightedList<E> of() {
+@@ -80,7 +_,7 @@
+     }
+ 
+     public List<Weighted<E>> unwrap() {
+-        return this.items;
++        return this.entryHashList; // Canvas
+     }
+ 
+     public static <E> Codec<WeightedList<E>> codec(Codec<E> elementCodec) {

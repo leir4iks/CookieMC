@@ -1,0 +1,10 @@
+--- a/net/minecraft/world/entity/monster/ZombieVillager.java
++++ b/net/minecraft/world/entity/monster/ZombieVillager.java
+@@ -293,6 +_,7 @@
+                 if (!this.isSilent()) {
+                     level.levelEvent(null, 1027, this.blockPosition(), 0);
+                 }
++                if (villager.isPassenger() && villager.getVehicle() instanceof net.minecraft.world.entity.animal.Chicken && villager.isBaby()) villager.removeVehicle(); // Canvas - MC-200418
+                 // CraftBukkit start
+             }, org.bukkit.event.entity.EntityTransformEvent.TransformReason.CURED, org.bukkit.event.entity.CreatureSpawnEvent.SpawnReason.CURED // CraftBukkit
+         );

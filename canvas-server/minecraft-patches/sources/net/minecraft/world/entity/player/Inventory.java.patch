@@ -1,0 +1,128 @@
+--- a/net/minecraft/world/entity/player/Inventory.java
++++ b/net/minecraft/world/entity/player/Inventory.java
+@@ -439,7 +_,10 @@
+             }
+         }
+ 
+-        for (EquipmentSlot equipmentSlot : EQUIPMENT_SLOT_MAPPING.values()) {
++        // Canvas start - remove iterators
++        for (int i = 0; i < EQUIPMENT_SLOT_MAPPING.size(); i++) {
++            EquipmentSlot equipmentSlot = EQUIPMENT_SLOT_MAPPING.get(i);
++        // Canvas end
+             ItemStack itemStack = this.equipment.get(equipmentSlot);
+             if (itemStack == stack) {
+                 this.equipment.set(equipmentSlot, ItemStack.EMPTY);
+@@ -504,17 +_,21 @@
+ 
+     @Override
+     public boolean isEmpty() {
+-        for (ItemStack itemStack : this.items) {
++        // Canvas start - remove iterators
++        for (int i = 0, itemStacksSize = this.items.size(); i < itemStacksSize; i++) {
++            final ItemStack itemStack = this.items.get(i);
+             if (!itemStack.isEmpty()) {
+                 return false;
+             }
+         }
+ 
+-        for (EquipmentSlot equipmentSlot : EQUIPMENT_SLOT_MAPPING.values()) {
++        for (int i = 0; i < EQUIPMENT_SLOT_MAPPING.size(); i++) {
++            EquipmentSlot equipmentSlot = EQUIPMENT_SLOT_MAPPING.get(i);
+             if (!this.equipment.get(equipmentSlot).isEmpty()) {
+                 return false;
+             }
+         }
++        // Canvas end
+ 
+         return true;
+     }
+@@ -561,32 +_,61 @@
+     }
+ 
+     public boolean contains(ItemStack stack) {
+-        for (ItemStack itemStack : this) {
+-            if (!itemStack.isEmpty() && ItemStack.isSameItemSameComponents(itemStack, stack)) {
+-                return true;
+-            }
+-        }
++        // Canvas start - remove iterators
++        for (int i = 0; i < this.items.size(); i++) {
++            ItemStack itemStack = this.items.get(i);
++            if (!itemStack.isEmpty() && ItemStack.isSameItemSameComponents(itemStack, stack)) {
++                return true;
++            }
++        }
++        for (int i = 0; i < EQUIPMENT_SLOT_MAPPING.size(); i++) {
++            EquipmentSlot equipmentSlot = EQUIPMENT_SLOT_MAPPING.get(i);
++            ItemStack itemStack = this.equipment.get(equipmentSlot);
++            if (!itemStack.isEmpty() && ItemStack.isSameItemSameComponents(itemStack, stack)) {
++                return true;
++            }
++        }
++        // Canvas end
+ 
+         return false;
+     }
+ 
+     public boolean contains(TagKey<Item> tag) {
+-        for (ItemStack itemStack : this) {
+-            if (!itemStack.isEmpty() && itemStack.is(tag)) {
+-                return true;
+-            }
+-        }
++        // Canvas start - remove iterators
++        for (int i = 0; i < this.items.size(); i++) {
++            ItemStack itemStack = this.items.get(i);
++            if (!itemStack.isEmpty() && itemStack.is(tag)) {
++                return true;
++            }
++        }
++        for (int i = 0; i < EQUIPMENT_SLOT_MAPPING.size(); i++) {
++            EquipmentSlot equipmentSlot = EQUIPMENT_SLOT_MAPPING.get(i);
++            ItemStack itemStack = this.equipment.get(equipmentSlot);
++            if (!itemStack.isEmpty() && itemStack.is(tag)) {
++                return true;
++            }
++        }
++        // Canvas end
+ 
+         return false;
+     }
+ 
+     public boolean contains(Predicate<ItemStack> predicate) {
+-        for (ItemStack itemStack : this) {
+-            if (predicate.test(itemStack)) {
+-                return true;
+-            }
+-        }
+-
++        // Canvas start - remove iterators
++        for (int i = 0; i < this.items.size(); i++) {
++            ItemStack itemStack = this.items.get(i);
++            if (predicate.test(itemStack)) {
++                return true;
++            }
++        }
++        for (int i = 0; i < EQUIPMENT_SLOT_MAPPING.size(); i++) {
++            EquipmentSlot equipmentSlot = EQUIPMENT_SLOT_MAPPING.get(i);
++            ItemStack itemStack = this.equipment.get(equipmentSlot);
++            if (predicate.test(itemStack)) {
++                return true;
++            }
++        }
++        // Canvas end
+         return false;
+     }
+ 
+@@ -605,7 +_,10 @@
+     }
+ 
+     public void fillStackedContents(StackedItemContents contents) {
+-        for (ItemStack itemStack : this.items) {
++        // Canvas start - remove iterators
++        for (int i = 0; i < this.items.size(); i++) {
++            ItemStack itemStack = this.items.get(i);
++        // Canvas end
+             contents.accountSimpleStack(itemStack);
+         }
+     }

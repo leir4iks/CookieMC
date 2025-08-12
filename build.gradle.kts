@@ -71,8 +71,8 @@ subprojects {
     }
 
     val subproject = this;
-    // we don't have any form of publishing for cookie-server, because that's the dev bundle
-    if (subproject.name == "cookie-api") {
+    // we don't have any form of publishing for canvas-server, because that's the dev bundle
+    if (subproject.name == "canvas-api") {
         publishing {
             repositories {
                 maven {
@@ -91,27 +91,27 @@ subprojects {
 
                     afterEvaluate {
                         pom {
-                            name.set("cookie-api")
+                            name.set("canvas-api")
                             description.set(subproject.description)
-                            url.set("https://github.com/Craftcookiemc/cookie")
+                            url.set("https://github.com/CraftCanvasMC/Canvas")
                             licenses {
                                 license {
                                     name.set("GNU Affero General Public License v3.0")
-                                    url.set("https://github.com/Craftcookiemc/cookie/blob/master/LICENSE")
+                                    url.set("https://github.com/CraftCanvasMC/Canvas/blob/master/LICENSE")
                                     distribution.set("repo")
                                 }
                             }
                             developers {
                                 developer {
-                                    id.set("cookie-team")
-                                    name.set("cookie Team")
-                                    organization.set("cookiemc")
-                                    organizationUrl.set("https://cookiemc.io")
+                                    id.set("canvas-team")
+                                    name.set("Canvas Team")
+                                    organization.set("CanvasMC")
+                                    organizationUrl.set("https://canvasmc.io")
                                     roles.add("developer")
                                 }
                             }
                             scm {
-                                url.set("https://github.com/Craftcookiemc/cookie")
+                                url.set("https://github.com/CraftCanvasMC/Canvas")
                             }
                         }
                     }
@@ -135,23 +135,23 @@ paperweight {
 
         patchFile {
             path = "purpur-server/build.gradle.kts"
-            outputFile = file("cookie-server/build.gradle.kts")
-            patchFile = file("cookie-server/build.gradle.kts.patch")
+            outputFile = file("canvas-server/build.gradle.kts")
+            patchFile = file("canvas-server/build.gradle.kts.patch")
         }
         patchFile {
             path = "purpur-api/build.gradle.kts"
-            outputFile = file("cookie-api/build.gradle.kts")
-            patchFile = file("cookie-api/build.gradle.kts.patch")
+            outputFile = file("canvas-api/build.gradle.kts")
+            patchFile = file("canvas-api/build.gradle.kts.patch")
         }
         patchRepo("paperApi") {
             upstreamPath = "paper-api"
-            patchesDir = file("cookie-api/paper-patches")
+            patchesDir = file("canvas-api/paper-patches")
             outputDir = file("paper-api")
         }
         patchDir("purpurApi") {
             upstreamPath = "purpur-api"
             excludes = listOf("build.gradle.kts", "build.gradle.kts.patch", "paper-patches")
-            patchesDir = file("cookie-api/purpur-patches")
+            patchesDir = file("canvas-api/purpur-patches")
             outputDir = file("purpur-api")
         }
     }
@@ -159,7 +159,7 @@ paperweight {
 
 // build publication
 tasks.register<Jar>("createMojmapClipboardJar") {
-    dependsOn(":cookie-server:createMojmapPaperclipJar")
+    dependsOn(":canvas-server:createMojmapPaperclipJar")
 }
 
 tasks.register("buildPublisherJar") {
@@ -168,16 +168,16 @@ tasks.register("buildPublisherJar") {
     doLast {
         val buildNumber = System.getenv("BUILD_NUMBER") ?: "local"
 
-        val paperclipJarTask = project(":cookie-server").tasks.getByName("createMojmapPaperclipJar")
+        val paperclipJarTask = project(":canvas-server").tasks.getByName("createMojmapPaperclipJar")
         val outputJar = paperclipJarTask.outputs.files.singleFile
         val outputDir = outputJar.parentFile
 
         if (outputJar.exists()) {
-            val newJarName = "cookie-build.$buildNumber.jar"
+            val newJarName = "canvas-build.$buildNumber.jar"
             val newJarFile = File(outputDir, newJarName)
 
             outputDir.listFiles()
-                ?.filter { it.name.startsWith("cookie-build.") && it.name.endsWith(".jar") }
+                ?.filter { it.name.startsWith("canvas-build.") && it.name.endsWith(".jar") }
                 ?.forEach { it.delete() }
             outputJar.renameTo(newJarFile)
             println("Renamed ${outputJar.name} to $newJarName in ${outputDir.absolutePath}")
@@ -187,5 +187,5 @@ tasks.register("buildPublisherJar") {
 
 // patching scripts
 tasks.register("fixupMinecraftFilePatches") {
-    dependsOn(":cookie-server:fixupMinecraftSourcePatches")
+    dependsOn(":canvas-server:fixupMinecraftSourcePatches")
 }

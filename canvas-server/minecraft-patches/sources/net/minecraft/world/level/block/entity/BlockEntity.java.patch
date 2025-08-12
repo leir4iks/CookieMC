@@ -1,0 +1,50 @@
+--- a/net/minecraft/world/level/block/entity/BlockEntity.java
++++ b/net/minecraft/world/level/block/entity/BlockEntity.java
+@@ -6,6 +_,7 @@
+ import java.util.HashSet;
+ import java.util.Set;
+ import javax.annotation.Nullable;
++import io.canvasmc.canvas.Config;
+ import net.minecraft.CrashReportCategory;
+ import net.minecraft.core.BlockPos;
+ import net.minecraft.core.HolderLookup;
+@@ -42,11 +_,20 @@
+     private static final Logger LOGGER = LogUtils.getLogger();
+     private final BlockEntityType<?> type;
+     @Nullable
+-    protected Level level;
+-    protected final BlockPos worldPosition;
++    public volatile Level level; // Canvas - protected -> public - volatile
++    public volatile BlockPos worldPosition; // Canvas - protected -> public - mutable - volatile
+     protected boolean remove;
+     private BlockState blockState;
+     private DataComponentMap components = DataComponentMap.EMPTY;
++    // Canvas start
++
++    public void lithium$handleSetChanged() {
++    }
++
++    // Threaded Regions
++    public void updateTicks(final long fromTickOffset, final long fromRedstoneOffset) {
++    }
++    // Canvas end
+ 
+     public BlockEntity(BlockEntityType<?> type, BlockPos pos, BlockState blockState) {
+         this.type = type;
+@@ -216,6 +_,7 @@
+             if (ignoreBlockEntityUpdates) return; // Paper - Perf: Optimize Hoppers
+             setChanged(this.level, this.worldPosition, this.blockState);
+         }
++        this.lithium$handleSetChanged(); // Canvas
+     }
+ 
+     protected static void setChanged(Level level, BlockPos pos, BlockState state) {
+@@ -363,7 +_,7 @@
+ 
+     // CraftBukkit start - add method
+     public org.bukkit.inventory.InventoryHolder getOwner() {
+-        return getOwner(true);
++        return getOwner(Config.INSTANCE.blocks.tileEntitySnapshotCreation); // Canvas - don't use snapshots for TileEntity::getOwner
+     }
+ 
+     public org.bukkit.inventory.InventoryHolder getOwner(boolean useSnapshot) {

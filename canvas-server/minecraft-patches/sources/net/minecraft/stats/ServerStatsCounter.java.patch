@@ -1,0 +1,24 @@
+--- a/net/minecraft/stats/ServerStatsCounter.java
++++ b/net/minecraft/stats/ServerStatsCounter.java
+@@ -45,7 +_,7 @@
+         }, map -> map.entrySet().stream().collect(Collectors.groupingBy(entry -> entry.getKey().getType(), Util.toMap())));
+     private final MinecraftServer server;
+     private final File file;
+-    private final Set<Stat<?>> dirty = Sets.newHashSet();
++    private final Set<Stat<?>> dirty = new it.unimi.dsi.fastutil.objects.ObjectArraySet<>(); // Canvas - optimized collection
+ 
+     private static <T> Codec<Map<Stat<?>, Integer>> createTypedStatsCodec(StatType<T> type) {
+         Codec<T> codec = type.getRegistry().byNameCodec();
+@@ -144,10 +_,11 @@
+     public void sendStats(ServerPlayer player) {
+         Object2IntMap<Stat<?>> map = new Object2IntOpenHashMap<>();
+ 
+-        for (Stat<?> stat : this.getDirty()) {
++        for (Stat<?> stat : this.dirty) { // Canvas - skip dirty stats copy
+             map.put(stat, this.getValue(stat));
+         }
+ 
++        this.dirty.clear(); // Canvas - skip dirty stats copy
+         player.connection.send(new ClientboundAwardStatsPacket(map));
+     }
+ }

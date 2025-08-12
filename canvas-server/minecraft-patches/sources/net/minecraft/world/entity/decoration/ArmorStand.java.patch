@@ -1,0 +1,21 @@
+--- a/net/minecraft/world/entity/decoration/ArmorStand.java
++++ b/net/minecraft/world/entity/decoration/ArmorStand.java
+@@ -93,7 +_,7 @@
+     public boolean canTick = true;
+     public boolean canTickSetByAPI = false;
+     private boolean noTickPoseDirty = false;
+-    private boolean noTickEquipmentDirty = false;
++    public boolean noTickEquipmentDirty = false; // Canvas - private -> public
+     // Paper end - Allow ArmorStands not to tick
+     public boolean canMovementTick = true; // Purpur - Movement options for armor stands
+ 
+@@ -559,8 +_,8 @@
+             }
+ 
+             if (this.noTickEquipmentDirty) {
+-                this.noTickEquipmentDirty = false;
+                 this.detectEquipmentUpdates();
++                this.noTickEquipmentDirty = false; // Canvas - equipment tracking - Remove dirty mark after handling equipment update for armor stand
+             }
+ 
+             return;

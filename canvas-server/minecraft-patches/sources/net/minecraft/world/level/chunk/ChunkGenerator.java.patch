@@ -1,0 +1,33 @@
+--- a/net/minecraft/world/level/chunk/ChunkGenerator.java
++++ b/net/minecraft/world/level/chunk/ChunkGenerator.java
+@@ -492,18 +_,20 @@
+             Structure structure = entry.getKey();
+             StructureSpawnOverride structureSpawnOverride = structure.spawnOverrides().get(category);
+             if (structureSpawnOverride != null) {
+-                MutableBoolean mutableBoolean = new MutableBoolean(false);
+-                Predicate<StructureStart> predicate = structureSpawnOverride.boundingBox() == StructureSpawnOverride.BoundingBoxType.PIECE
+-                    ? structureStart -> structureManager.structureHasPieceAt(pos, structureStart)
+-                    : structureStart -> structureStart.getBoundingBox().isInside(pos);
+-                structureManager.fillStartsForStructure(structure, entry.getValue(), structureStart -> {
+-                    if (mutableBoolean.isFalse() && predicate.test(structureStart)) {
+-                        mutableBoolean.setTrue();
++                // Canvas start - optimize getMobsAt
++                for (long l : entry.getValue()) {
++                    StructureStart startForStructure = structureManager.getStartForStructure(
++                        null, structure, structureManager.level.getChunk(ChunkPos.getX(l), ChunkPos.getZ(l), ChunkStatus.STRUCTURE_STARTS)
++                    );
++                    if (startForStructure != null && startForStructure.isValid()) {
++                        if (structureSpawnOverride.boundingBox() == StructureSpawnOverride.BoundingBoxType.PIECE
++                            ? structureManager.structureHasPieceAt(pos, startForStructure)
++                            : startForStructure.getBoundingBox().isInside(pos)) {
++                            return structureSpawnOverride.spawns();
++                        }
+                     }
+-                });
+-                if (mutableBoolean.isTrue()) {
+-                    return structureSpawnOverride.spawns();
+                 }
++                // Canvas end
+             }
+         }
+ 

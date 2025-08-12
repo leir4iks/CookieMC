@@ -1,0 +1,80 @@
+--- a/net/minecraft/server/network/ServerConfigurationPacketListenerImpl.java
++++ b/net/minecraft/server/network/ServerConfigurationPacketListenerImpl.java
+@@ -1,5 +_,6 @@
+ package net.minecraft.server.network;
+ 
++import ca.spottedleaf.concurrentutil.util.Priority;
+ import com.mojang.authlib.GameProfile;
+ import com.mojang.logging.LogUtils;
+ import java.util.List;
+@@ -28,13 +_,16 @@
+ import net.minecraft.server.RegistryLayer;
+ import net.minecraft.server.ServerLinks;
+ import net.minecraft.server.level.ClientInformation;
++import net.minecraft.server.level.ServerLevel;
+ import net.minecraft.server.level.ServerPlayer;
++import net.minecraft.server.level.TicketType;
+ import net.minecraft.server.network.config.JoinWorldTask;
+ import net.minecraft.server.network.config.ServerResourcePackConfigurationTask;
+ import net.minecraft.server.network.config.SynchronizeRegistriesTask;
+ import net.minecraft.server.packs.repository.KnownPack;
+ import net.minecraft.server.players.PlayerList;
+ import net.minecraft.world.flag.FeatureFlags;
++import net.minecraft.world.level.chunk.status.ChunkStatus;
+ import org.slf4j.Logger;
+ 
+ public class ServerConfigurationPacketListenerImpl extends ServerCommonPacketListenerImpl implements ServerConfigurationPacketListener, TickablePacketListener {
+@@ -159,8 +_,41 @@
+                 return;
+             }
+ 
++            // Canvas start - Threaded Regions
++            final int chunkX = this.player.chunkPosition().x;
++            final int chunkZ = this.player.chunkPosition().z;
++            final ServerLevel world = this.player.serverLevel();
++            // place ticket
++            LOGGER.info("Placing ticket for login and queuing placement task for player '{}'", this.player.getName().getString());
+             ServerPlayer playerForLogin = playerList.getPlayerForLogin(this.gameProfile, this.clientInformation, this.player); // CraftBukkit
+-            playerList.placeNewPlayer(this.connection, playerForLogin, this.createCookie(this.clientInformation));
++            Runnable placementTask = () -> {
++                try {
++                    playerList.placeNewPlayer(this.connection, playerForLogin, this.createCookie(this.clientInformation));
++                } catch (Exception e) {
++                    this.player.getBukkitEntity().taskScheduler.schedule((_) -> {
++                        LOGGER.error("Unable to load new player, removing login ticket", e);
++                        world.getChunkSource().updateRegionTicket(player.chunkPosition(), false, TicketType.LOGIN);
++                    }, null, 0);
++                } finally {
++                    this.player.getBukkitEntity().taskScheduler.schedule((_) -> {
++                        LOGGER.info("Finished placing new player, removing login ticket");
++                        world.getChunkSource().updateRegionTicket(player.chunkPosition(), false, TicketType.LOGIN);
++                    }, null, 0);
++                }
++            };
++            world.loadChunksForMoveAsync(
++                playerForLogin.getBoundingBox().inflate(5),
++                Priority.HIGHER,
++                (_) -> {
++                    world.getChunkSource().updateRegionTicket(chunkX, chunkZ, true, TicketType.LOGIN);
++                    // queue tick task
++                    MinecraftServer.getThreadedServer().taskQueue.queueTickTaskQueue(
++                        world, chunkX, chunkZ,
++                        placementTask, Priority.HIGHER
++                    );
++                }
++            );
++            // Canvas end
+         } catch (Exception var5) {
+             LOGGER.error("Couldn't place player in world", (Throwable)var5);
+             // Paper start - Debugging
+@@ -168,8 +_,8 @@
+                 var5.printStackTrace();
+             }
+             // Paper end - Debugging
+-            this.connection.send(new ClientboundDisconnectPacket(DISCONNECT_REASON_INVALID_DATA));
+-            this.connection.disconnect(DISCONNECT_REASON_INVALID_DATA);
++            this.connection.send(new ClientboundDisconnectPacket(Component.literal(var5.getMessage()))); // Canvas - use actual reason
++            this.connection.disconnect(Component.literal(var5.getMessage())); // Canvas - use actual reason
+         }
+     }
+ 

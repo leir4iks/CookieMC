@@ -1,0 +1,14 @@
+--- a/net/minecraft/world/level/gameevent/GameEventListener.java
++++ b/net/minecraft/world/level/gameevent/GameEventListener.java
+@@ -23,4 +_,11 @@
+     public interface Provider<T extends GameEventListener> {
+         T getListener();
+     }
++
++    // Canvas start - reduce work done by game event system
++    // Add check for seeing if this listener cares about an event
++    default boolean listensToEvent(GameEvent gameEvent, GameEvent.Context context) {
++        return true;
++    }
++    // Canvas end - reduce work done by game event system
+ }

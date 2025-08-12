@@ -15,17 +15,17 @@ if (!file(".git").exists()) {
     val errorText = """
         
         =====================[ ERROR ]=====================
-         The cookie project directory is not a properly cloned Git repository.
+         The Canvas project directory is not a properly cloned Git repository.
          
-         In order to build cookie from source you must clone
-         the cookie repository using Git, not download a code
+         In order to build Canvas from source you must clone
+         the Canvas repository using Git, not download a code
          zip from GitHub.
          
-         Built cookie jars are available for download at
-         https://cookiemc.io/downloads
+         Built Canvas jars are available for download at
+         https://canvasmc.io/downloads
          
-         See https://github.com/Craftcookiemc/cookie/blob/HEAD/CONTRIBUTING.md
-         for further information on building and modifying cookie.
+         See https://github.com/CraftCanvasMC/Canvas/blob/HEAD/CONTRIBUTING.md
+         for further information on building and modifying Canvas.
         ===================================================
     """.trimIndent()
     error(errorText)
@@ -33,8 +33,8 @@ if (!file(".git").exists()) {
 
 enableFeaturePreview("TYPESAFE_PROJECT_ACCESSORS")
 
-rootProject.name = "cookie"
-for (name in listOf("cookie-api", "cookie-server", "cookie-api-generator")) {
+rootProject.name = "canvas"
+for (name in listOf("canvas-api", "canvas-server", "canvas-api-generator")) {
     val projName = name.lowercase(Locale.ENGLISH)
     include(projName)
     findProject(":$projName")!!.projectDir = file(name)

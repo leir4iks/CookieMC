@@ -1,0 +1,153 @@
+--- a/net/minecraft/world/level/material/FlowingFluid.java
++++ b/net/minecraft/world/level/material/FlowingFluid.java
+@@ -6,6 +_,8 @@
+ import it.unimi.dsi.fastutil.shorts.Short2BooleanOpenHashMap;
+ import it.unimi.dsi.fastutil.shorts.Short2ObjectMap;
+ import it.unimi.dsi.fastutil.shorts.Short2ObjectOpenHashMap;
++import java.util.ArrayDeque;
++import java.util.Deque;
+ import java.util.Map;
+ import java.util.Map.Entry;
+ import net.minecraft.core.BlockPos;
+@@ -342,32 +_,77 @@
+ 
+     protected abstract void beforeDestroyingBlock(LevelAccessor level, BlockPos pos, BlockState state);
+ 
+-    protected int getSlopeDistance(LevelReader level, BlockPos pos, int depth, Direction direction, BlockState state, FlowingFluid.SpreadContext spreadContext) {
+-        int i = 1000;
+-
+-        for (Direction direction1 : Direction.Plane.HORIZONTAL) {
+-            if (direction1 != direction) {
+-                BlockPos blockPos = pos.relative(direction1);
+-                BlockState blockState = spreadContext.getBlockStateIfLoaded(blockPos); // Paper - Prevent chunk loading from fluid flowing
+-                if (blockState == null) continue; // Paper - Prevent chunk loading from fluid flowing
+-                FluidState fluidState = blockState.getFluidState();
+-                if (this.canPassThrough(level, this.getFlowing(), pos, state, direction1, blockPos, blockState, fluidState)) {
+-                    if (spreadContext.isHole(blockPos)) {
+-                        return depth;
+-                    }
+-
+-                    if (depth < this.getSlopeFindDistance(level)) {
+-                        int slopeDistance = this.getSlopeDistance(level, blockPos, depth + 1, direction1.getOpposite(), blockState, spreadContext);
+-                        if (slopeDistance < i) {
+-                            i = slopeDistance;
+-                        }
+-                    }
+-                }
+-            }
+-        }
+-
+-        return i;
+-    }
++    // Canvas start - optimize flowing fluid
++    protected int getSlopeDistance(LevelReader level, BlockPos startPos, int initialDepth, Direction excludedDirection, BlockState startState, FlowingFluid.SpreadContext spreadContext) {
++        it.unimi.dsi.fastutil.longs.LongSet visited = new it.unimi.dsi.fastutil.longs.LongOpenHashSet(512);
++        java.util.Queue<FlowingFluid.SlopeDistanceNode> queue = new java.util.ArrayDeque<>(256);
++
++        for (Direction dir : Direction.Plane.HORIZONTAL) {
++            if (dir == excludedDirection) continue;
++
++            BlockPos neighborPos = startPos.relative(dir);
++            BlockState neighborState = spreadContext.getBlockStateIfLoaded(neighborPos);
++            if (neighborState == null) continue;
++
++            // Check if the fluid can actually pass through to this first neighbor before adding
++            FluidState neighborFluidState = neighborState.getFluidState();
++            if (!this.canPassThrough(level, this.getFlowing(), startPos, startState, dir, neighborPos, neighborState, neighborFluidState)) {
++                continue;
++            }
++            long visitKey = encodeSlopeNode(neighborPos, dir.getOpposite());
++            if (visited.add(visitKey)) {
++                queue.add(new FlowingFluid.SlopeDistanceNode(neighborPos, initialDepth, dir.getOpposite(), neighborState));
++            }
++        }
++        int slopeFindDistance = this.getSlopeFindDistance(level);
++        int minDistance = 1000;
++        // Process the queue
++        while (!queue.isEmpty()) {
++            FlowingFluid.SlopeDistanceNode current = queue.poll();
++            if (spreadContext.isHole(current.pos)) {
++                return current.depth;
++            }
++
++            if (current.depth >= slopeFindDistance) continue;
++
++            for (Direction dir : Direction.Plane.HORIZONTAL) {
++                if (dir == current.excludedDir) continue;
++
++                BlockPos nextPos = current.pos.relative(dir);
++                BlockState nextState = spreadContext.getBlockStateIfLoaded(nextPos);
++                if (nextState == null) continue;
++
++                FluidState nextFluidState = nextState.getFluidState();
++                if (!this.canPassThrough(level, this.getFlowing(), current.pos, current.state, dir, nextPos, nextState, nextFluidState)) {
++                    continue;
++                }
++
++                long visitKey = encodeSlopeNode(nextPos, dir.getOpposite());
++                if (visited.add(visitKey)) {
++                    queue.add(new FlowingFluid.SlopeDistanceNode(nextPos, current.depth + 1, dir.getOpposite(), nextState));
++                }
++            }
++        }
++        return minDistance;
++    }
++    private static long encodeSlopeNode(BlockPos pos, Direction excludedDir) {
++        return ((long) pos.getX() & 0xFFFFFFFFL) << 32 | ((long) pos.getZ() & 0xFFFFFFFFL) << 4 | (excludedDir.ordinal() & 0x0F);
++    }
++
++    private static class SlopeDistanceNode {
++        final BlockPos pos;
++        final int depth;
++        final Direction excludedDir;
++        final BlockState state;
++
++        SlopeDistanceNode(BlockPos pos, int depth, Direction excludedDir, BlockState state) {
++            this.pos = pos.immutable();
++            this.depth = depth;
++            this.excludedDir = excludedDir;
++            this.state = state;
++        }
++    }
++    // Canvas end
+ 
+     boolean isWaterHole(BlockGetter level, BlockPos pos, BlockState state, BlockPos belowPos, BlockState belowState) {
+         return canPassThroughWall(Direction.DOWN, level, pos, state, belowPos, belowState)
+@@ -542,7 +_,25 @@
+             : this.shapes.computeIfAbsent(state, fluidState -> Shapes.box(0.0, 0.0, 0.0, 1.0, fluidState.getHeight(level, pos), 1.0));
+     }
+ 
+-    record BlockStatePairKey(BlockState first, BlockState second, Direction direction) {
++    // Canvas start
++    static class BlockStatePairKey {
++        private final BlockState first;
++        private final BlockState second;
++        private final Direction direction;
++        private final int hash;
++
++        private BlockStatePairKey(BlockState first, BlockState second, Direction direction) {
++            this.first = first;
++            this.second = second;
++            this.direction = direction;
++            int hash = System.identityHashCode(this.first);
++
++            hash = 31 * hash + System.identityHashCode(this.second);
++            hash = 31 * hash + this.direction.hashCode();
++            this.hash = hash;
++        }
++    // Canvas end
++
+         @Override
+         public boolean equals(Object object) {
+             return object instanceof FlowingFluid.BlockStatePairKey blockStatePairKey
+@@ -553,9 +_,7 @@
+ 
+         @Override
+         public int hashCode() {
+-            int i = System.identityHashCode(this.first);
+-            i = 31 * i + System.identityHashCode(this.second);
+-            return 31 * i + this.direction.hashCode();
++            return this.hash; // Canvas
+         }
+     }
+ 

@@ -1,0 +1,62 @@
+--- a/net/minecraft/world/entity/ai/goal/OfferFlowerGoal.java
++++ b/net/minecraft/world/entity/ai/goal/OfferFlowerGoal.java
+@@ -19,10 +_,20 @@
+ 
+     @Override
+     public boolean canUse() {
++        // Canvas start - Async target finding
+         if (!this.golem.level().isBrightOutside()) {
+             return false;
+-        } else if (this.golem.getRandom().nextInt(8000) != 0) {
+-            return false;
++        }
++        if (poll()) {
++            return true;
++        }
++        if (this.golem.getRandom().nextInt(8000) != 0) {
++            return false;
++        }
++        if (io.canvasmc.canvas.Config.INSTANCE.entities.asyncTargetFinding.searchEntity) {
++            getVillagerAsync();
++            return false;
++        // Canvas end - Async target finding
+         } else {
+             this.villager = getServerLevel(this.golem)
+                 .getNearestEntity(
+@@ -37,6 +_,36 @@
+             return this.villager != null;
+         }
+     }
++
++
++    // Canvas start - Async target finding
++    protected boolean poll() {
++        if (!(this.golem.getGoalCtx().result() instanceof Villager target)) return false;
++        var serverLevel = getServerLevel(this.golem);
++        if (!target.isAlive() || !OFFER_TARGER_CONTEXT.test(serverLevel, this.golem, target)) return false;
++        this.villager = target;
++        return true;
++    }
++
++    protected void getVillagerAsync() {
++        final var golem = this.golem;
++        final var ctx = golem.getGoalCtx();
++        if (!ctx.state) return;
++        final double x = golem.getX();
++        final double y = golem.getEyeY();
++        final double z = golem.getZ();
++        final var serverLevel = getServerLevel(golem);
++        final var bound = golem.getBoundingBox().inflate(6.0, 2.0, 6.0);
++        ctx.wake = () -> serverLevel.getNearestEntity(
++            serverLevel.getEntitiesOfClass(Villager.class, bound, livingEntity -> true),
++            OFFER_TARGER_CONTEXT,
++            golem,
++            x,
++            y,
++            z
++        );
++    }
++    // Canvas end - Async target finding
+ 
+     @Override
+     public boolean canContinueToUse() {

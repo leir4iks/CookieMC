@@ -1,0 +1,14 @@
+--- a/net/minecraft/world/entity/ai/goal/CatLieOnBedGoal.java
++++ b/net/minecraft/world/entity/ai/goal/CatLieOnBedGoal.java
+@@ -54,4 +_,11 @@
+     protected boolean isValidTarget(LevelReader level, BlockPos pos) {
+         return level.isEmptyBlock(pos.above()) && level.getBlockState(pos).is(BlockTags.BEDS);
+     }
++
++    // Canvas start - Async target finding
++    @Override
++    protected TypeToCheck typeToCheck() {
++        return TypeToCheck.CatLie;
++    }
++    // Canvas end - Async target finding
+ }

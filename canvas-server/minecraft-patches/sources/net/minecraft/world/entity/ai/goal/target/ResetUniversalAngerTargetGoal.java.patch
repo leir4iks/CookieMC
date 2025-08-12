@@ -1,0 +1,48 @@
+--- a/net/minecraft/world/entity/ai/goal/target/ResetUniversalAngerTargetGoal.java
++++ b/net/minecraft/world/entity/ai/goal/target/ResetUniversalAngerTargetGoal.java
+@@ -37,6 +_,27 @@
+         this.lastHurtByPlayerTimestamp = this.mob.getLastHurtByMobTimestamp();
+         this.mob.forgetCurrentTargetAndRefreshUniversalAnger();
+         if (this.alertOthersOfSameType) {
++            // Canvas start - Async target finding
++            if (io.canvasmc.canvas.Config.INSTANCE.entities.asyncTargetFinding.alertOther) {
++                final var mob = this.mob;
++                final var ctx = mob.getGoalCtx();
++                if (!ctx.state) return;
++                final var serverLevel = getServerLevel(mob);
++                final double followRange = this.mob.getAttributeValue(Attributes.FOLLOW_RANGE);
++                final AABB aabb = AABB.unitCubeFromLowerCorner(this.mob.position()).inflate(followRange, 10.0, followRange);
++                ctx.wake = () -> {
++                    var entities = serverLevel.getEntitiesOfClass(mob.getClass(), aabb, EntitySelector.NO_SPECTATORS);
++                    List<NeutralMob> toStop = new java.util.ArrayList<>(entities.size());
++                    for (Mob entity : entities) {
++                        if (entity != mob) {
++                            toStop.add((NeutralMob) entity);
++                        }
++                    }
++                    return toStop;
++                };
++                return;
++            }
++            // Canvas end - Async target finding
+             this.getNearbyMobsOfSameType()
+                 .stream()
+                 .filter(mob -> mob != this.mob)
+@@ -46,6 +_,17 @@
+ 
+         super.start();
+     }
++
++    // Canvas start - Async target finding
++    public void poll() {
++        if (!(this.mob.getGoalCtx().result() instanceof List toStop)) return;
++        for (var neutralMob : toStop) {
++            if (EntitySelector.NO_SPECTATORS.test((net.minecraft.world.entity.Entity) neutralMob)) {
++                ((NeutralMob) neutralMob).forgetCurrentTargetAndRefreshUniversalAnger();
++            }
++        }
++    }
++    // Canvas end - Async target finding
+ 
+     private List<? extends Mob> getNearbyMobsOfSameType() {
+         double attributeValue = this.mob.getAttributeValue(Attributes.FOLLOW_RANGE);

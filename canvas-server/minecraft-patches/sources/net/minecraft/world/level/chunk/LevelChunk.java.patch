@@ -1,0 +1,513 @@
+--- a/net/minecraft/world/level/chunk/LevelChunk.java
++++ b/net/minecraft/world/level/chunk/LevelChunk.java
+@@ -1,16 +_,25 @@
+ package net.minecraft.world.level.chunk;
+ 
++import ca.spottedleaf.concurrentutil.util.Priority;
+ import com.google.common.collect.ImmutableList;
+ import com.google.common.collect.Maps;
+ import com.mojang.logging.LogUtils;
++import io.canvasmc.canvas.Config;
++import io.canvasmc.canvas.entity.SleepingBlockEntity;
++import io.canvasmc.canvas.region.ServerRegions;
++import io.papermc.paper.threadedregions.ThreadedRegionizer;
+ import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
+-import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
+ import java.util.Collections;
+ import java.util.Map;
+ import java.util.Map.Entry;
++import java.util.Objects;
+ import java.util.function.Consumer;
+ import java.util.function.Supplier;
+ import javax.annotation.Nullable;
++import it.unimi.dsi.fastutil.ints.Int2ObjectMaps;
++import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
++import it.unimi.dsi.fastutil.shorts.ShortList;
++import it.unimi.dsi.fastutil.shorts.ShortLists;
+ import net.minecraft.CrashReport;
+ import net.minecraft.CrashReportCategory;
+ import net.minecraft.ReportedException;
+@@ -23,8 +_,6 @@
+ import net.minecraft.network.protocol.game.ClientboundLevelChunkPacketData;
+ import net.minecraft.server.level.FullChunkStatus;
+ import net.minecraft.server.level.ServerLevel;
+-import net.minecraft.util.profiling.Profiler;
+-import net.minecraft.util.profiling.ProfilerFiller;
+ import net.minecraft.world.entity.Entity;
+ import net.minecraft.world.level.ChunkPos;
+ import net.minecraft.world.level.Level;
+@@ -59,6 +_,13 @@
+         @Override
+         public void tick() {
+         }
++        // Canvas start
++
++        @Override
++        public BlockEntity getTileEntity() {
++            return null;
++        }
++        // Canvas end
+ 
+         @Override
+         public boolean isRemoved() {
+@@ -75,14 +_,26 @@
+             return "<null>";
+         }
+     };
+-    private final Map<BlockPos, LevelChunk.RebindableTickingBlockEntityWrapper> tickersInLevel = Maps.newHashMap();
++    private final Map<BlockPos, LevelChunk.RebindableTickingBlockEntityWrapper> tickersInLevel = it.unimi.dsi.fastutil.objects.Object2ObjectMaps.synchronize(new it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap<>()); // Canvas - optimized collection - synchronized
+     public boolean loaded;
+     public final ServerLevel level; // CraftBukkit - type
+     @Nullable
+     private Supplier<FullChunkStatus> fullStatus;
+     @Nullable
+     private LevelChunk.PostLoadProcessor postLoad;
+-    private final Int2ObjectMap<GameEventListenerRegistry> gameEventListenerRegistrySections;
++    // Canvas start - reduce work done by game event system
++    private final GameEventListenerRegistry[] gameEventListenerRegistrySections;
++    private static final int GAME_EVENT_DISPATCHER_RADIUS = 2;
++
++    private static int getGameEventSectionIndex(int sectionIndex) {
++        return sectionIndex + GAME_EVENT_DISPATCHER_RADIUS;
++    }
++
++    private static int getGameEventSectionLength(int sectionCount) {
++        return sectionCount + (GAME_EVENT_DISPATCHER_RADIUS * 2);
++    }
++
++    // Canvas end - reduce work done by game event system
+     private final LevelChunkTicks<Block> blockTicks;
+     private final LevelChunkTicks<Fluid> fluidTicks;
+     private LevelChunk.UnsavedListener unsavedListener = chunkPos -> {};
+@@ -96,7 +_,8 @@
+     // Paper end
+     // Paper start - rewrite chunk system
+     private boolean postProcessingDone;
+-    private ca.spottedleaf.moonrise.patches.chunk_system.scheduling.NewChunkHolder chunkAndHolder;
++    public ca.spottedleaf.moonrise.patches.chunk_system.scheduling.NewChunkHolder chunkAndHolder; // Canvas - private -> public
++    public volatile boolean heightMapPrimed = false; // Canvas
+ 
+     @Override
+     public final boolean moonrise$isPostProcessingDone() {
+@@ -121,12 +_,56 @@
+     private final int maxSection;
+     private final boolean debug;
+     private final BlockState defaultBlockState;
++    public int ticksSinceLastPrecipitationCall = 0; // Canvas
++    public int ticksSinceLastRandomTickCall = 0; // Canvas
+ 
+     @Override
+     public final BlockState moonrise$getBlock(final int x, final int y, final int z) {
+         return this.getBlockStateFinal(x, y, z);
+     }
+     // Paper end - get block chunk optimisation
++    // Canvas start - optimize random tick
++    private boolean leaf$tickingBlocksDirty = true;
++    private int leaf$tickingBlocksCount;
++    private int leaf$firstTickingSectionIndex = -1;
++    public final int leaf$tickingBlocksCount() {
++        if (!leaf$tickingBlocksDirty) {
++            return leaf$tickingBlocksCount;
++        }
++        leaf$tickingBlocksDirty = false;
++        int sum = 0;
++        leaf$firstTickingSectionIndex = -1;
++        for (int i = 0; i < sections.length; i++) {
++            LevelChunkSection section = sections[i];
++            int size = section.moonrise$getTickingBlockList().size();
++            if (size != 0 && leaf$firstTickingSectionIndex == -1) {
++                leaf$firstTickingSectionIndex = i;
++            }
++            sum += size;
++        }
++        leaf$tickingBlocksCount = sum;
++        return sum;
++    }
++    public final java.util.OptionalLong leaf$getTickingPos(int idx) {
++        if (leaf$firstTickingSectionIndex != -1) {
++            for (int i = leaf$firstTickingSectionIndex; i < sections.length; i++) {
++                LevelChunkSection section = sections[i];
++                var l = section.moonrise$getTickingBlockList();
++                int size = l.size();
++                if (idx < size) {
++                    short loc = l.getRaw(idx);
++                    int x = (loc & 15) | (chunkPos.x << 4);
++                    int y = (loc >>> 8) | ((getMinSectionY() + i) << 4);
++                    int z = ((loc >>> 4) & 15) | (chunkPos.z << 4);
++                    return java.util.OptionalLong.of(BlockPos.asLong(x, y, z));
++                }
++                idx -= size;
++            }
++        }
++        leaf$tickingBlocksDirty = true;
++        return java.util.OptionalLong.empty();
++    }
++    // Canvas end
+ 
+     public LevelChunk(Level level, ChunkPos pos) {
+         this(level, pos, UpgradeData.EMPTY, new LevelChunkTicks<>(), new LevelChunkTicks<>(), 0L, null, null, null);
+@@ -145,7 +_,7 @@
+     ) {
+         super(pos, data, level, net.minecraft.server.MinecraftServer.getServer().registryAccess().lookupOrThrow(Registries.BIOME), inhabitedTime, sections, blendingData); // Paper - Anti-Xray - The world isn't ready yet, use server singleton for registry
+         this.level = (ServerLevel) level; // CraftBukkit - type
+-        this.gameEventListenerRegistrySections = new Int2ObjectOpenHashMap<>();
++        this.gameEventListenerRegistrySections = new GameEventListenerRegistry[getGameEventSectionLength(this.getSectionsCount())]; // Canvas - reduce work done by game event system
+ 
+         for (Heightmap.Types types : Heightmap.Types.values()) {
+             if (ChunkStatus.FULL.heightmapsAfter().contains(types)) {
+@@ -189,7 +_,7 @@
+         this.pendingBlockEntities.putAll(chunk.getBlockEntityNbts());
+ 
+         for (int i = 0; i < chunk.getPostProcessing().length; i++) {
+-            this.postProcessing[i] = chunk.getPostProcessing()[i];
++            ShortList list = chunk.getPostProcessing()[i]; if (list == null) continue; this.postProcessing[i] = ShortLists.synchronize(list); // Canvas - synchronized
+         }
+ 
+         this.setAllStarts(chunk.getAllStarts());
+@@ -255,10 +_,27 @@
+ 
+     @Override
+     public GameEventListenerRegistry getListenerRegistry(int sectionY) {
+-        return this.level instanceof ServerLevel serverLevel
+-            ? this.gameEventListenerRegistrySections
+-                .computeIfAbsent(sectionY, i -> new EuclideanGameEventListenerRegistry(serverLevel, sectionY, this::removeGameEventListenerRegistry))
+-            : super.getListenerRegistry(sectionY);
++        // Canvas start - reduce work done by game event system
++        if (this.level instanceof ServerLevel serverLevel) {
++            int sectionIndex = getGameEventSectionIndex(this.getSectionIndexFromSectionY(sectionY));
++
++            // drop game events that are too far away (32 blocks) from loaded sections
++            // this matches the highest radius of game events in the game
++            if (sectionIndex < 0 || sectionIndex >= this.gameEventListenerRegistrySections.length) {
++                return GameEventListenerRegistry.NOOP;
++            }
++
++            var dispatcher = this.gameEventListenerRegistrySections[sectionIndex];
++
++            if (dispatcher == null) {
++                dispatcher = this.gameEventListenerRegistrySections[sectionIndex] = new EuclideanGameEventListenerRegistry(serverLevel, sectionY, this::removeGameEventListenerRegistry);
++            }
++
++            return dispatcher;
++        }
++
++        return super.getListenerRegistry(sectionY);
++        // Canvas end - reduce work done by game event system
+     }
+ 
+     // Paper start - Perf: Reduce instructions and provide final method
+@@ -270,11 +_,18 @@
+     public BlockState getBlockStateFinal(final int x, final int y, final int z) {
+         // Copied and modified from below
+         final int sectionIndex = this.getSectionIndex(y);
+-        if (sectionIndex < 0 || sectionIndex >= this.sections.length
+-            || this.sections[sectionIndex].nonEmptyBlockCount == 0) {
+-            return Blocks.AIR.defaultBlockState();
+-        }
+-        return this.sections[sectionIndex].states.get((y & 15) << 8 | (z & 15) << 4 | x & 15);
++        // Canvas start - optimize block state lookup
++        if (sectionIndex < 0 || sectionIndex >= this.sections.length) {
++            return Blocks.AIR.defaultBlockState();
++        }
++
++        final LevelChunkSection section = this.sections[sectionIndex];
++        if (section.nonEmptyBlockCount == 0) {
++            return Blocks.AIR.defaultBlockState();
++        }
++
++        return section.states.get((y & 15) << 8 | (z & 15) << 4 | (x & 15));
++        // Canvas end
+     }
+ 
+     @Override
+@@ -371,6 +_,11 @@
+             if (blockState == state) {
+                 return null;
+             } else {
++                // Canvas start - optimize random tick
++                if (blockState.isRandomlyTicking() != state.isRandomlyTicking()) {
++                    leaf$tickingBlocksDirty = true;
++                }
++                // Canvas end
+                 Block block = state.getBlock();
+                 this.heightmaps.get(Heightmap.Types.MOTION_BLOCKING).update(i, y, i2, state);
+                 this.heightmaps.get(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES).update(i, y, i2, state);
+@@ -383,12 +_,8 @@
+                 }
+ 
+                 if (LightEngine.hasDifferentLightProperties(blockState, state)) {
+-                    ProfilerFiller profilerFiller = Profiler.get();
+-                    profilerFiller.push("updateSkyLightSources");
+                     // Paper - rewrite chunk system
+-                    profilerFiller.popPush("queueCheckLight");
+                     this.level.getChunkSource().getLightEngine().checkBlock(pos);
+-                    profilerFiller.pop();
+                 }
+ 
+                 boolean flag = !blockState.is(block);
+@@ -412,7 +_,7 @@
+                 if (!section.getBlockState(i, i1, i2).is(block)) {
+                     return null;
+                 } else {
+-                    if (!this.level.isClientSide && (flags & 512) == 0 && (!this.level.captureBlockStates || block instanceof net.minecraft.world.level.block.BaseEntityBlock)) { // CraftBukkit - Don't place while processing the BlockPlaceEvent, unless it's a BlockContainer. Prevents blocks such as TNT from activating when cancelled.
++                    if (!this.level.isClientSide && (flags & 512) == 0 && (!this.level.captureBlockStates.get() || block instanceof net.minecraft.world.level.block.BaseEntityBlock)) { // CraftBukkit - Don't place while processing the BlockPlaceEvent, unless it's a BlockContainer. Prevents blocks such as TNT from activating when cancelled. // Canvas - threadlocal
+                         state.onPlace(this.level, pos, blockState, flag1);
+                     }
+ 
+@@ -467,7 +_,7 @@
+     @Nullable
+     public BlockEntity getBlockEntity(BlockPos pos, LevelChunk.EntityCreationType creationType) {
+         // CraftBukkit start
+-        BlockEntity blockEntity = this.level.capturedTileEntities.get(pos);
++        BlockEntity blockEntity = this.level.capturedTileEntities.get().get(pos); // Canvas - threadlocal
+         if (blockEntity == null) {
+             blockEntity = this.blockEntities.get(pos);
+         }
+@@ -542,6 +_,7 @@
+ 
+                 if (blockState.getBlock() != blockState1.getBlock()) {
+                     LOGGER.warn("Block state mismatch on block entity {} in position {}, {} != {}, updating", blockEntity, blockPos, blockState, blockState1);
++                    new Throwable().printStackTrace(); // Canvas - print stacktrace for mismatch
+                 }
+ 
+                 blockEntity.setBlockState(blockState);
+@@ -609,7 +_,7 @@
+     }
+ 
+     private void removeGameEventListenerRegistry(int sectionY) {
+-        this.gameEventListenerRegistrySections.remove(sectionY);
++        this.gameEventListenerRegistrySections[getGameEventSectionIndex(this.getSectionIndexFromSectionY(sectionY))] = null; // Canvas - reduce work done by game event system
+     }
+ 
+     private void removeBlockEntityTicker(BlockPos pos) {
+@@ -628,7 +_,7 @@
+ 
+     // CraftBukkit start
+     public void loadCallback() {
+-        if (this.loadedTicketLevel) { LOGGER.error("Double calling chunk load!", new Throwable()); } // Paper
++        if (this.loadedTicketLevel) { return; } // Paper // Canvas - shhhhh
+         // Paper start
+         this.loadedTicketLevel = true;
+         // Paper end
+@@ -654,13 +_,13 @@
+ 
+                 org.bukkit.World world = this.level.getWorld();
+                 if (world != null) {
+-                    this.level.populating = true;
++                    this.level.populating.set(true); // Canvas - threadlocal
+                     try {
+                         for (org.bukkit.generator.BlockPopulator populator : world.getPopulators()) {
+                             populator.populate(world, random, bukkitChunk);
+                         }
+                     } finally {
+-                        this.level.populating = false;
++                        this.level.populating.set(false); // Canvas - threadlocal
+                     }
+                 }
+                 server.getPluginManager().callEvent(new org.bukkit.event.world.ChunkPopulateEvent(bukkitChunk));
+@@ -669,7 +_,7 @@
+     }
+ 
+     public void unloadCallback() {
+-        if (!this.loadedTicketLevel) { LOGGER.error("Double calling chunk unload!", new Throwable()); } // Paper
++        if (!this.loadedTicketLevel) { return; } // Paper // Canvas - shhhhh
+         org.bukkit.Server server = this.level.getCraftServer();
+         org.bukkit.craftbukkit.event.CraftEventFactory.callEntitiesUnloadEvent(this.level, this.chunkPos, ((ca.spottedleaf.moonrise.patches.chunk_system.level.ChunkSystemServerLevel)this.level).moonrise$getChunkTaskScheduler().chunkHolderManager.getChunkHolder(this.locX, this.locZ).getEntityChunk().getAllEntities()); // Paper - rewrite chunk system
+         org.bukkit.Chunk bukkitChunk = new org.bukkit.craftbukkit.CraftChunk(this);
+@@ -686,7 +_,7 @@
+     @Override
+     public boolean isUnsaved() {
+         // Paper start - rewrite chunk system
+-        final long gameTime = this.level.getGameTime();
++        final long gameTime = this.level.getRedstoneGameTime(); // Canvas - Threaded Regions
+         if (((ca.spottedleaf.moonrise.patches.chunk_system.ticks.ChunkSystemLevelChunkTicks)this.blockTicks).moonrise$isDirty(gameTime)
+             || ((ca.spottedleaf.moonrise.patches.chunk_system.ticks.ChunkSystemLevelChunkTicks)this.fluidTicks).moonrise$isDirty(gameTime)) {
+             return true;
+@@ -762,7 +_,7 @@
+                     BlockPos blockPos = ProtoChunk.unpackOffsetCoordinates(_short, this.getSectionYFromSectionIndex(i), pos);
+                     BlockState blockState = this.getBlockState(blockPos);
+                     FluidState fluidState = blockState.getFluidState();
+-                    if (!fluidState.isEmpty()) {
++                    if (!Config.INSTANCE.chunks.generation.disableFluidTickingInPostProcessGenerationStep && !fluidState.isEmpty()) { // Canvas - disable fluid ticking on post process gen
+                         fluidState.tick(level, blockPos, blockState);
+                     }
+ 
+@@ -796,7 +_,8 @@
+                 blockEntity = ((EntityBlock)blockState.getBlock()).newBlockEntity(pos, blockState);
+             } else {
+                 blockEntity = null;
+-                LOGGER.warn("Tried to load a DUMMY block entity @ {} but found not block entity block {} at location", pos, blockState);
++                LOGGER.warn("Tried to load a DUMMY block entity @ {} but found not block entity block {} at location", pos, blockState, new Throwable()); // Canvas - print calltrace
++                return null; // Canvas - just return, dont send extra logs.
+             }
+         } else {
+             blockEntity = BlockEntity.loadStatic(pos, blockState, tag, this.level.registryAccess());
+@@ -813,13 +_,19 @@
+     }
+ 
+     public void unpackTicks(long pos) {
+-        this.blockTicks.unpack(pos);
+-        this.fluidTicks.unpack(pos);
++        // Canvas start - Threaded Regions
++        ServerRegions.WorldTickData tickData = ServerRegions.getRegionizedTickData(this.chunkPos.x, this.chunkPos.z, this.level);
++        this.blockTicks.unpack(tickData.getRedstoneGameTime());
++        this.fluidTicks.unpack(tickData.getRedstoneGameTime());
++        // Canvas end
+     }
+ 
+     public void registerTickContainerInLevel(ServerLevel level) {
+-        level.getBlockTicks().addContainer(this.chunkPos, this.blockTicks);
+-        level.getFluidTicks().addContainer(this.chunkPos, this.fluidTicks);
++        // Canvas start - Threaded Regions
++        ServerRegions.WorldTickData tickData = ServerRegions.getRegionizedTickData(this.chunkPos.x, this.chunkPos.z, level);
++        tickData.getBlockLevelTicks().addContainer(this.chunkPos, this.blockTicks);
++        tickData.getFluidLevelTicks().addContainer(this.chunkPos, this.fluidTicks);
++        // Canvas end
+     }
+ 
+     public void unregisterTickContainerFromLevel(ServerLevel level) {
+@@ -879,12 +_,22 @@
+                     (pos, ticker1) -> {
+                         TickingBlockEntity tickingBlockEntity = this.createTicker(blockEntity, ticker);
+                         if (ticker1 != null) {
++                            // Canvas start
++                            if (blockEntity instanceof SleepingBlockEntity sleepingBlockEntity) {
++                                sleepingBlockEntity.lithium$setTickWrapper(ticker1);
++                            }
++                            // Canvas end
+                             ticker1.rebind(tickingBlockEntity);
+                             return (LevelChunk.RebindableTickingBlockEntityWrapper)ticker1;
+                         } else if (this.isInLevel()) {
+                             LevelChunk.RebindableTickingBlockEntityWrapper rebindableTickingBlockEntityWrapper = new LevelChunk.RebindableTickingBlockEntityWrapper(
+                                 tickingBlockEntity
+                             );
++                            // Canvas start
++                            if (blockEntity instanceof SleepingBlockEntity sleepingBlockEntity) {
++                                sleepingBlockEntity.lithium$setTickWrapper(rebindableTickingBlockEntityWrapper);
++                            }
++                            // Canvas end
+                             this.level.addBlockEntityTicker(rebindableTickingBlockEntityWrapper);
+                             return rebindableTickingBlockEntityWrapper;
+                         } else {
+@@ -903,11 +_,26 @@
+         private final T blockEntity;
+         private final BlockEntityTicker<T> ticker;
+         private boolean loggedInvalidBlockState;
++        private final BlockPos cachedPos; // Canvas - cache position
+ 
+         BoundTickingBlockEntity(final T blockEntity, final BlockEntityTicker<T> ticker) {
+             this.blockEntity = blockEntity;
+             this.ticker = ticker;
+-        }
++            this.cachedPos = this.blockEntity.getBlockPos(); // Canvas - cache position
++        }
++        // Canvas start
++
++        private <T extends BlockEntity> void lagCompensation(Runnable original) {
++            original.run();
++            if (!Config.INSTANCE.lagCompensation.enabled) return;
++            if (!Config.INSTANCE.lagCompensation.blockEntityAcceleration) return;
++            if (LevelChunk.this.level.isClientSide()) return;
++
++            for (int i = 0; i < ServerRegions.getTickData((ServerLevel) this.blockEntity.getLevel()).tpsCalculator.applicableMissedTicks(); i++) { // Canvas - Threaded Regions
++                original.run();
++            }
++        }
++        // Canvas end
+ 
+         @Override
+         public void tick() {
+@@ -915,11 +_,13 @@
+                 BlockPos blockPos = this.blockEntity.getBlockPos();
+                 if (LevelChunk.this.isTicking(blockPos)) {
+                     try {
+-                        ProfilerFiller profilerFiller = Profiler.get();
+-                        profilerFiller.push(this::getType);
+                         BlockState blockState = LevelChunk.this.getBlockState(blockPos);
+                         if (this.blockEntity.getType().isValid(blockState)) {
+-                            this.ticker.tick(LevelChunk.this.level, this.blockEntity.getBlockPos(), blockState, this.blockEntity);
++                            // Canvas start
++                            lagCompensation(() -> {
++                                this.ticker.tick(LevelChunk.this.level, this.blockEntity.getBlockPos(), blockState, this.blockEntity);
++                            });
++                            // Canvas end
+                             this.loggedInvalidBlockState = false;
+                         // Paper start - Remove the Block Entity if it's invalid
+                         } else {
+@@ -930,8 +_,6 @@
+                             }
+                             // Paper end - Remove the Block Entity if it's invalid
+                         }
+-
+-                        profilerFiller.pop();
+                     } catch (Throwable var5) {
+                         // Paper start - Prevent block entity and entity crashes
+                         final String msg = String.format("BlockEntity threw exception at %s:%s,%s,%s", LevelChunk.this.getLevel().getWorld().getName(), this.getPos().getX(), this.getPos().getY(), this.getPos().getZ());
+@@ -951,7 +_,7 @@
+ 
+         @Override
+         public BlockPos getPos() {
+-            return this.blockEntity.getBlockPos();
++            return this.cachedPos; // Canvas - cache position
+         }
+ 
+         @Override
+@@ -963,6 +_,13 @@
+         public String toString() {
+             return "Level ticker for " + this.getType() + "@" + this.getPos();
+         }
++        // Canvas start - Threaded Regions
++
++        @Override
++        public BlockEntity getTileEntity() {
++            return this.blockEntity;
++        }
++        // Canvas end
+     }
+ 
+     public static enum EntityCreationType {
+@@ -976,15 +_,18 @@
+         void run(LevelChunk chunk);
+     }
+ 
+-    static class RebindableTickingBlockEntityWrapper implements TickingBlockEntity {
+-        private TickingBlockEntity ticker;
++    public static class RebindableTickingBlockEntityWrapper implements TickingBlockEntity { // Canvas - package-private -> public
++        public TickingBlockEntity ticker; // Canvas - private -> public
++        private BlockPos cachedPos; // Canvas - cache position
+ 
+         RebindableTickingBlockEntityWrapper(TickingBlockEntity ticker) {
+             this.ticker = ticker;
++            this.cachedPos = this.ticker.getPos(); // Canvas - cache position
+         }
+ 
+-        void rebind(TickingBlockEntity ticker) {
++        public void rebind(TickingBlockEntity ticker) { // Canvas - package-private -> public
+             this.ticker = ticker;
++            this.cachedPos = this.ticker.getPos(); // Canvas - cache position
+         }
+ 
+         @Override
+@@ -999,7 +_,7 @@
+ 
+         @Override
+         public BlockPos getPos() {
+-            return this.ticker.getPos();
++            return this.cachedPos; // Canvas - cache position
+         }
+ 
+         @Override
+@@ -1011,6 +_,13 @@
+         public String toString() {
+             return this.ticker + " <wrapped>";
+         }
++        // Canvas start - Threaded Regions
++
++        @Override
++        public BlockEntity getTileEntity() {
++            return this.ticker == null ? null : this.ticker.getTileEntity();
++        }
++        // Canvas end
+     }
+ 
+     @FunctionalInterface

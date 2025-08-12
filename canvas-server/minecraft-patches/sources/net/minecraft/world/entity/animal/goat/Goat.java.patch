@@ -1,0 +1,53 @@
+--- a/net/minecraft/world/entity/animal/goat/Goat.java
++++ b/net/minecraft/world/entity/animal/goat/Goat.java
+@@ -3,6 +_,8 @@
+ import com.google.common.collect.ImmutableList;
+ import com.mojang.serialization.Dynamic;
+ import javax.annotation.Nullable;
++import io.canvasmc.canvas.entity.SensorHelper;
++import net.minecraft.SharedConstants;
+ import net.minecraft.core.BlockPos;
+ import net.minecraft.core.Holder;
+ import net.minecraft.core.registries.Registries;
+@@ -21,8 +_,6 @@
+ import net.minecraft.tags.TagKey;
+ import net.minecraft.util.Mth;
+ import net.minecraft.util.RandomSource;
+-import net.minecraft.util.profiling.Profiler;
+-import net.minecraft.util.profiling.ProfilerFiller;
+ import net.minecraft.world.DifficultyInstance;
+ import net.minecraft.world.InteractionHand;
+ import net.minecraft.world.InteractionResult;
+@@ -101,6 +_,13 @@
+         this.getNavigation().setCanFloat(true);
+         this.setPathfindingMalus(PathType.POWDER_SNOW, -1.0F);
+         this.setPathfindingMalus(PathType.DANGER_POWDER_SNOW, -1.0F);
++        // Canvas start - disable useless sensor
++        if (!this.getBrain().hasMemoryValue(MemoryModuleType.NEAREST_VISIBLE_WANTED_ITEM)) {
++            SensorHelper.disableSensor(this, SensorType.NEAREST_ITEMS);
++        } else if (SharedConstants.IS_RUNNING_IN_IDE) {
++            throw new IllegalStateException("Goat Entity has a nearest visible wanted item memory module! This patch(Optimize-Brain, Goat.java changes) should probably be removed permanently!");
++        }
++        // Canvas end
+     }
+ 
+     public ItemStack createHorn() {
+@@ -225,16 +_,12 @@
+         return (Brain<Goat>)super.getBrain();
+     }
+ 
++    private int behaviorTick = 0; // Canvas
+     @Override
+     protected void customServerAiStep(ServerLevel level) {
+-        ProfilerFiller profilerFiller = Profiler.get();
+-        profilerFiller.push("goatBrain");
+-        //if ((getRider() == null || !this.isControllable()) && this.behaviorTick++ % this.activatedPriority == 0) // Pufferfish // Purpur - only use brain if no rider
++        if ((getRider() == null || !this.isControllable()) && this.behaviorTick++ % this.activatedPriority == 0) // Pufferfish // Purpur - only use brain if no rider // Canvas - DAB
+         this.getBrain().tick(level, this);
+-        profilerFiller.pop();
+-        profilerFiller.push("goatActivityUpdate");
+         GoatAi.updateActivity(this);
+-        profilerFiller.pop();
+         super.customServerAiStep(level);
+     }
+ 

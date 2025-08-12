@@ -1,0 +1,12 @@
+--- a/net/minecraft/world/entity/decoration/ItemFrame.java
++++ b/net/minecraft/world/entity/decoration/ItemFrame.java
+@@ -255,7 +_,9 @@
+         if (framedMapId != null) {
+             MapItemSavedData savedData = MapItem.getSavedData(framedMapId, this.level());
+             if (savedData != null) {
++                synchronized (savedData) { // Canvas - make map data thread-safe
+                 savedData.removedFromFrame(this.pos, this.getId());
++                } // Canvas - make map data thread-safe
+             }
+         }
+ 

@@ -1,0 +1,48 @@
+--- a/net/minecraft/server/level/TicketType.java
++++ b/net/minecraft/server/level/TicketType.java
+@@ -45,21 +_,35 @@
+     public static final TicketType FORCED = register("forced", 0L, true, TicketType.TicketUse.LOADING_AND_SIMULATION);
+     public static final TicketType PORTAL = register("portal", 300L, true, TicketType.TicketUse.LOADING_AND_SIMULATION);
+     public static final TicketType ENDER_PEARL = register("ender_pearl", 40L, false, TicketType.TicketUse.LOADING_AND_SIMULATION);
+-    public static final TicketType UNKNOWN = register("unknown", 1L, false, TicketType.TicketUse.LOADING);
++    public static final TicketType UNKNOWN = register("unknown", 20L, false, TicketType.TicketUse.LOADING); // Canvas - Threaded Regions
+     public static final TicketType PLUGIN = register("plugin", 0L, false, TicketType.TicketUse.LOADING_AND_SIMULATION); // CraftBukkit
+     public static final TicketType POST_TELEPORT = register("post_teleport", 5L, false, TicketType.TicketUse.LOADING_AND_SIMULATION); // Paper
+     public static final TicketType PLUGIN_TICKET = register("plugin_ticket", TicketType.NO_TIMEOUT, false, TicketType.TicketUse.LOADING_AND_SIMULATION); static { ((TicketType<org.bukkit.plugin.Plugin>)PLUGIN_TICKET).moonrise$setIdentifierComparator((org.bukkit.plugin.Plugin p1, org.bukkit.plugin.Plugin p2) -> p1.getName().compareTo(p2.getName())); } // Paper // Paper - rewrite chunk system
+     public static final TicketType FUTURE_AWAIT = register("future_await", TicketType.NO_TIMEOUT, false, TicketType.TicketUse.LOADING_AND_SIMULATION); // Paper
+     public static final TicketType CHUNK_LOAD = register("chunk_load", TicketType.NO_TIMEOUT, false, TicketType.TicketUse.LOADING); // Paper - moonrise
++    // Canvas start - Threaded Regions
++    public static final TicketType LOGIN = register("canvas:login", 20L, false, TicketType.TicketUse.LOADING_AND_SIMULATION);
++    public static final TicketType TELEPORT = register("canvas:teleport", 0L, false, TicketType.TicketUse.LOADING_AND_SIMULATION);
++    public static final TicketType END_GATEWAY = register("canvas:end_gateway", 0L, false, TicketType.TicketUse.LOADING_AND_SIMULATION);
++    public static final TicketType REGION_SCHEDULER_API_HOLD = register("canvas:region_scheduler_api_hold", 0L, false, TicketType.TicketUse.LOADING_AND_SIMULATION);
++    public static final TicketType NETWORK_ROUTER = register("canvas:network_router", 40L, false, TicketType.TicketUse.LOADING_AND_SIMULATION);
++    // Canvas end
+ 
+     public static TicketType register(String name, long timeout, boolean persist, TicketType.TicketUse use) {
+-        return Registry.register(BuiltInRegistries.TICKET_TYPE, name, new TicketType(timeout, persist, use));
++        return Registry.register(BuiltInRegistries.TICKET_TYPE, name, new TicketType(timeout, persist, use).setName(name)); // Canvas - add name for debug
+     }
+ 
+     // Paper start - rewrite chunk system - convert to class
+     private final long timeout;
+     private final boolean persist;
+     private final net.minecraft.server.level.TicketType.TicketUse use;
++    // Canvas start - add name for debug
++    private String name = "unknown_plugin";
++    public TicketType<T> setName(String name) {
++        this.name = name;
++        return this;
++    }
++    // Canvas end
+ 
+     public TicketType(long timeout, boolean persist, net.minecraft.server.level.TicketType.TicketUse use) {
+         this.timeout = timeout;
+@@ -95,6 +_,7 @@
+         return "TicketType[" +
+             "timeout=" + timeout + ", " +
+             "persist=" + persist + ", " +
++            "name=" + name + ", " + // Canvas - add name for debug
+             "use=" + use + ']';
+     }
+     // Paper end - rewrite chunk system - convert to class

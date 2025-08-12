@@ -1,0 +1,31 @@
+--- a/net/minecraft/world/entity/ai/sensing/TemptingSensor.java
++++ b/net/minecraft/world/entity/ai/sensing/TemptingSensor.java
+@@ -28,15 +_,20 @@
+     protected void doTick(ServerLevel level, PathfinderMob entity) {
+         Brain<?> brain = entity.getBrain();
+         TargetingConditions targetingConditions = TEMPT_TARGETING.copy().range((float)entity.getAttributeValue(Attributes.TEMPT_RANGE));
+-        List<Player> list = level.players()
+-            .stream()
+-            .filter(EntitySelector.NO_SPECTATORS)
+-            .filter(serverPlayer -> targetingConditions.test(level, entity, serverPlayer))
+-            .filter(this::playerHoldingTemptation)
+-            .filter(serverPlayer -> !entity.hasPassenger(serverPlayer))
+-            .sorted(Comparator.comparingDouble(entity::distanceToSqr))
+-            .collect(Collectors.toList());
++        List<net.minecraft.server.level.ServerPlayer> allPlayers = level.players();
++        // Canvas start - remove streams
++        List<Player> list = new java.util.ArrayList<>();
++        for (Player serverPlayer : allPlayers) {
++            if (EntitySelector.NO_SPECTATORS.test(serverPlayer) &&
++                targetingConditions.test(level, entity, serverPlayer) &&
++                this.playerHoldingTemptation(serverPlayer) &&
++                !entity.hasPassenger(serverPlayer)) {
++                list.add(serverPlayer);
++            }
++        }
++        // Canvas end
+         if (!list.isEmpty()) {
++            list.sort(Comparator.comparingDouble(entity::distanceToSqr)); // Canvas - remove streams
+             Player player = list.get(0);
+             // CraftBukkit start
+             org.bukkit.event.entity.EntityTargetLivingEntityEvent event = org.bukkit.craftbukkit.event.CraftEventFactory.callEntityTargetLivingEvent(

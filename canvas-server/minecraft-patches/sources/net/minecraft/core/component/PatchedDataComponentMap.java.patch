@@ -1,0 +1,69 @@
+--- a/net/minecraft/core/component/PatchedDataComponentMap.java
++++ b/net/minecraft/core/component/PatchedDataComponentMap.java
+@@ -1,5 +_,6 @@
+ package net.minecraft.core.component;
+ 
++import io.canvasmc.canvas.util.fastutil.Reference2ObjectConcurrentHashMap;
+ import it.unimi.dsi.fastutil.objects.Reference2ObjectArrayMap;
+ import it.unimi.dsi.fastutil.objects.Reference2ObjectMap;
+ import it.unimi.dsi.fastutil.objects.Reference2ObjectMaps;
+@@ -14,10 +_,11 @@
+ import java.util.stream.Collectors;
+ import javax.annotation.Nullable;
+ 
+-public final class PatchedDataComponentMap implements DataComponentMap {
++public final class PatchedDataComponentMap implements DataComponentMap, io.canvasmc.canvas.util.change_tracking.ChangePublisher<PatchedDataComponentMap> { // Canvas - equipment tracking
+     private final DataComponentMap prototype;
+     private Reference2ObjectMap<DataComponentType<?>, Optional<?>> patch;
+     private boolean copyOnWrite;
++    private io.canvasmc.canvas.util.change_tracking.ChangeSubscriber<PatchedDataComponentMap> subscriber; // Canvas - equipment tracking
+ 
+     public PatchedDataComponentMap(DataComponentMap prototype) {
+         this(prototype, Reference2ObjectMaps.emptyMap(), true);
+@@ -25,7 +_,7 @@
+ 
+     private PatchedDataComponentMap(DataComponentMap prototype, Reference2ObjectMap<DataComponentType<?>, Optional<?>> patch, boolean copyOnWtite) {
+         this.prototype = prototype;
+-        this.patch = patch;
++        this.patch = patch instanceof Reference2ObjectConcurrentHashMap<DataComponentType<?>, Optional<?>> ? patch : new Reference2ObjectConcurrentHashMap<>(patch); // Canvas - concurrent
+         this.copyOnWrite = copyOnWtite;
+     }
+ 
+@@ -135,8 +_,13 @@
+     }
+ 
+     private void ensureMapOwnership() {
++        // Canvas start - equipment tracking
++        if (this.subscriber != null) {
++            this.subscriber.lithium$notify(this, 0);
++        }
++        // Canvas end - equipment tracking
+         if (this.copyOnWrite) {
+-            this.patch = new Reference2ObjectArrayMap<>(this.patch);
++            this.patch = new Reference2ObjectConcurrentHashMap<>(this.patch); // Canvas - concurrent
+             this.copyOnWrite = false;
+         }
+     }
+@@ -220,6 +_,22 @@
+     public DataComponentMap toImmutableMap() {
+         return (DataComponentMap)(this.patch.isEmpty() ? this.prototype : this.copy());
+     }
++
++    // Canvas start - equipment tracking
++    @Override
++    public void lithium$subscribe(io.canvasmc.canvas.util.change_tracking.ChangeSubscriber<PatchedDataComponentMap> subscriber, int subscriberData) {
++        if (subscriberData != 0) {
++            throw new UnsupportedOperationException("ComponentMapImpl does not support subscriber data");
++        }
++        this.subscriber = io.canvasmc.canvas.util.change_tracking.ChangeSubscriber.combine(this.subscriber, 0, subscriber, 0);
++    }
++
++    @Override
++    public int lithium$unsubscribe(io.canvasmc.canvas.util.change_tracking.ChangeSubscriber<PatchedDataComponentMap> subscriber) {
++        this.subscriber = io.canvasmc.canvas.util.change_tracking.ChangeSubscriber.without(this.subscriber, subscriber);
++        return 0;
++    }
++    // Canvas end - equipment tracking
+ 
+     @Override
+     public boolean equals(Object other) {

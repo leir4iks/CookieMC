@@ -1,0 +1,42 @@
+--- a/net/minecraft/world/entity/monster/Strider.java
++++ b/net/minecraft/world/entity/monster/Strider.java
+@@ -553,6 +_,13 @@
+         protected boolean isValidTarget(LevelReader level, BlockPos pos) {
+             return level.getBlockState(pos).is(Blocks.LAVA) && level.getBlockState(pos.above()).isPathfindable(PathComputationType.LAND);
+         }
++
++        // Canvas start - Async target finding
++        @Override
++        protected TypeToCheck typeToCheck() {
++            return TypeToCheck.Strider;
++        }
++        // Canvas end - Async target finding
+     }
+ 
+     static class StriderPathNavigation extends GroundPathNavigation {
+@@ -560,9 +_,25 @@
+             super(strider, level);
+         }
+ 
++        // Canvas start - async path processing
++        private static final io.canvasmc.canvas.entity.pathfinding.NodeEvaluatorGenerator nodeEvaluatorGenerator = (io.canvasmc.canvas.entity.pathfinding.NodeEvaluatorFeatures nodeEvaluatorFeatures) -> {
++            WalkNodeEvaluator nodeEvaluator = new WalkNodeEvaluator();
++            nodeEvaluator.setCanPassDoors(nodeEvaluatorFeatures.canPassDoors());
++            nodeEvaluator.setCanFloat(nodeEvaluatorFeatures.canFloat());
++            nodeEvaluator.setCanWalkOverFences(nodeEvaluatorFeatures.canWalkOverFences());
++            nodeEvaluator.setCanOpenDoors(nodeEvaluatorFeatures.canOpenDoors());
++            return nodeEvaluator;
++        };
++        // Canvas end
++
+         @Override
+         protected PathFinder createPathFinder(int maxVisitedNodes) {
+             this.nodeEvaluator = new WalkNodeEvaluator();
++            // Canvas start - async path processing
++            if (io.canvasmc.canvas.Config.INSTANCE.entities.pathfinding.enableThreadedPathfinding) {
++                return new PathFinder(this.nodeEvaluator, maxVisitedNodes, nodeEvaluatorGenerator);
++            }
++            // Canvas end
+             return new PathFinder(this.nodeEvaluator, maxVisitedNodes);
+         }
+ 

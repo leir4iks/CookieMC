@@ -1,0 +1,13 @@
+--- a/net/minecraft/world/entity/ai/memory/NearestVisibleLivingEntities.java
++++ b/net/minecraft/world/entity/ai/memory/NearestVisibleLivingEntities.java
+@@ -12,8 +_,8 @@
+ 
+ public class NearestVisibleLivingEntities {
+     private static final NearestVisibleLivingEntities EMPTY = new NearestVisibleLivingEntities();
+-    private final List<LivingEntity> nearbyEntities;
+-    private final Predicate<LivingEntity> lineOfSightTest;
++    public final List<LivingEntity> nearbyEntities; // Canvas - private -> public
++    public final Predicate<LivingEntity> lineOfSightTest; // Canvas - private -> public
+ 
+     private NearestVisibleLivingEntities() {
+         this.nearbyEntities = List.of();

@@ -1,0 +1,55 @@
+--- a/net/minecraft/world/entity/ai/goal/FollowMobGoal.java
++++ b/net/minecraft/world/entity/ai/goal/FollowMobGoal.java
+@@ -38,6 +_,15 @@
+ 
+     @Override
+     public boolean canUse() {
++        // Canvas start - Async target finding
++        if (poll()) {
++            return true;
++        }
++        if (io.canvasmc.canvas.Config.INSTANCE.entities.asyncTargetFinding.searchEntity) {
++            getFollowingMobAsync();
++            return false;
++        }
++        // Canvas end - Async target finding
+         List<Mob> entitiesOfClass = this.mob.level().getEntitiesOfClass(Mob.class, this.mob.getBoundingBox().inflate(this.areaSize), this.followPredicate);
+         if (!entitiesOfClass.isEmpty()) {
+             for (Mob mob : entitiesOfClass) {
+@@ -50,6 +_,36 @@
+ 
+         return false;
+     }
++
++    // Canvas start - Async target finding
++    private boolean poll() {
++        if (!(this.mob.getGoalCtx().result() instanceof Mob target)) return false;
++        var serverLevel = getServerLevel(this.mob);
++        if (serverLevel == null || !target.isAlive() || target.isInvisible()) return false;
++        this.followingMob = target;
++        return true;
++    }
++
++    private void getFollowingMobAsync() {
++        final var mob = this.mob;
++        final var ctx = this.mob.getGoalCtx();
++        if (!ctx.state) return;
++        final var serverLevel = getServerLevel(mob);
++        final var bound = this.mob.getBoundingBox().inflate(this.areaSize);
++        final var followPredicate = this.followPredicate;
++        ctx.wake = () -> {
++            List<Mob> entitiesOfClass = serverLevel.getEntitiesOfClass(Mob.class, bound, followPredicate);
++            if (!entitiesOfClass.isEmpty()) {
++                for (final Mob follow : entitiesOfClass) {
++                    if (!follow.isInvisible()) {
++                        return follow;
++                    }
++                }
++            }
++            return null;
++        };
++    }
++    // Canvas end - Async target finding
+ 
+     @Override
+     public boolean canContinueToUse() {

@@ -1,0 +1,25 @@
+--- a/src/main/java/org/bukkit/Server.java
++++ b/src/main/java/org/bukkit/Server.java
+@@ -286,6 +_,22 @@
+      */
+     @NotNull
+     public ServerTickManager getServerTickManager();
++    // Canvas start - Threaded Server
++
++    /**
++     * Get the interface to interact with Canvas threading changes
++     * @return the threaded server
++     */
++    @NotNull
++    public io.canvasmc.canvas.ThreadedBukkitServer getThreadedServer();
++
++    // threaded regions
++    /**
++     * Get if the server has enabled threaded regionizing
++     * @return if the server is regionized
++     */
++    public boolean isRegionized();
++    // Canvas end
+ 
+     /**
+      * Gets the resource pack configured to be sent to clients by the server.

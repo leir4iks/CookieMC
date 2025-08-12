@@ -1,0 +1,370 @@
+--- a/net/minecraft/network/Connection.java
++++ b/net/minecraft/network/Connection.java
+@@ -4,6 +_,7 @@
+ import com.google.common.collect.Queues;
+ import com.google.common.util.concurrent.ThreadFactoryBuilder;
+ import com.mojang.logging.LogUtils;
++import io.canvasmc.canvas.region.ServerRegions;
+ import io.netty.bootstrap.Bootstrap;
+ import io.netty.channel.Channel;
+ import io.netty.channel.ChannelException;
+@@ -37,7 +_,9 @@
+ import java.nio.channels.ClosedChannelException;
+ import java.util.Objects;
+ import java.util.Queue;
++import java.util.concurrent.ConcurrentLinkedQueue;
+ import java.util.concurrent.RejectedExecutionException;
++import java.util.concurrent.atomic.AtomicReference;
+ import java.util.function.Consumer;
+ import java.util.function.Supplier;
+ import javax.annotation.Nullable;
+@@ -58,7 +_,9 @@
+ import net.minecraft.network.protocol.login.LoginProtocols;
+ import net.minecraft.network.protocol.status.ClientStatusPacketListener;
+ import net.minecraft.network.protocol.status.StatusProtocols;
++import net.minecraft.server.MinecraftServer;
+ import net.minecraft.server.RunningOnDifferentThreadException;
++import net.minecraft.server.level.ServerLevel;
+ import net.minecraft.util.Mth;
+ import net.minecraft.util.debugchart.LocalSampleLogger;
+ import org.apache.commons.lang3.Validate;
+@@ -85,7 +_,7 @@
+     private static final ProtocolInfo<ServerHandshakePacketListener> INITIAL_PROTOCOL = HandshakeProtocols.SERVERBOUND;
+     private final PacketFlow receiving;
+     private volatile boolean sendLoginDisconnect = true;
+-    private final Queue<WrappedConsumer> pendingActions = Queues.newConcurrentLinkedQueue(); // Paper - Optimize network
++    private final Queue<WrappedConsumer> pendingActions = new ca.spottedleaf.concurrentutil.collection.MultiThreadedQueue<>(); // Paper - Optimize network // Canvas - connection threading
+     public Channel channel;
+     public SocketAddress address;
+     // Spigot start
+@@ -96,11 +_,11 @@
+     @Nullable
+     private volatile PacketListener disconnectListener;
+     @Nullable
+-    private volatile PacketListener packetListener;
++    public volatile PacketListener packetListener; // Canvas - private -> public - connection threading
+     @Nullable
+     private DisconnectionDetails disconnectionDetails;
+     private boolean encrypted;
+-    private boolean disconnectionHandled;
++    private final java.util.concurrent.atomic.AtomicBoolean disconnectionHandled = new java.util.concurrent.atomic.AtomicBoolean(false); // Canvas - connection threading
+     private int receivedPackets;
+     private int sentPackets;
+     private float averageReceivedPackets;
+@@ -147,8 +_,30 @@
+     @Nullable public SocketAddress haProxyAddress; // Paper - Add API to get player's proxy address
+     // Paper start - Optimize network
+     public boolean isPending = true;
++    private io.netty.channel.SingleThreadEventLoop eventLoop; // Canvas - optimise packets that are not flushed
+     public boolean queueImmunity;
+     // Paper end - Optimize network
++    // Canvas start - packet processor
++    // if owner ref is null, it's being routed, else, it's owned by something
++    public final AtomicReference<ServerRegions.WorldTickData> owner = new AtomicReference<>();
++    public void computeIfOwningTickDataPresent(Consumer<ServerRegions.WorldTickData> ownerConsumer) {
++        if (owner.get() != null) {
++            ownerConsumer.accept(owner.get());
++        }
++    }
++    private final Queue<Runnable> packetsToProcess = new ConcurrentLinkedQueue<>();
++
++    public void schedulePacket(Runnable runnable) {
++        packetsToProcess.add(runnable);
++    }
++
++    public void tickPackets() {
++        Runnable task;
++        while ((task = packetsToProcess.poll()) != null) {
++            task.run();
++        }
++    }
++    // Canvas end
+ 
+     public Connection(PacketFlow receiving) {
+         this.receiving = receiving;
+@@ -158,6 +_,7 @@
+     public void channelActive(ChannelHandlerContext context) throws Exception {
+         super.channelActive(context);
+         this.channel = context.channel();
++        this.eventLoop = (io.netty.channel.SingleThreadEventLoop) this.channel.eventLoop(); // Canvas - optimise packets that are not flushed
+         this.address = this.channel.remoteAddress();
+         this.preparing = false; // Spigot
+         if (this.delayedDisconnect != null) {
+@@ -434,7 +_,7 @@
+         }
+ 
+         packet.onPacketDispatch(this.getPlayer());
+-        if (connected && (InnerUtil.canSendImmediate(this, packet)
++        if (false && connected && (InnerUtil.canSendImmediate(this, packet) // Canvas - connection threading
+             || (io.papermc.paper.util.MCUtil.isMainThread() && packet.isReady() && this.pendingActions.isEmpty()
+             && (packet.getExtraPackets() == null || packet.getExtraPackets().isEmpty())))) {
+             this.sendPacket(packet, listener, flush);
+@@ -463,11 +_,12 @@
+     }
+ 
+     public void runOnceConnected(Consumer<Connection> action) {
+-        if (this.isConnected()) {
++        if (false && this.isConnected()) { // Canvas - connection threading
+             this.flushQueue();
+             action.accept(this);
+         } else {
+             this.pendingActions.add(new WrappedConsumer(action)); // Paper - Optimize network
++            this.flushQueue(); // Canvas - connection threading
+         }
+     }
+ 
+@@ -476,6 +_,11 @@
+         if (this.channel.eventLoop().inEventLoop()) {
+             this.doSendPacket(packet, sendListener, flush);
+         } else {
++            // Canvas start - optimise packets that are not flushed
++            if (!flush && io.canvasmc.canvas.Config.INSTANCE.networking.optimizeNonFlushPacketSending) {
++                this.eventLoop.lazyExecute(() -> this.doSendPacket(packet, sendListener, flush));
++            } else
++            // Canvas end
+             this.channel.eventLoop().execute(() -> this.doSendPacket(packet, sendListener, flush));
+         }
+     }
+@@ -518,10 +_,11 @@
+     }
+ 
+     public void flushChannel() {
+-        if (this.isConnected()) {
++        if (false && this.isConnected()) { // Canvas - connection threading
+             this.flush();
+         } else {
+             this.pendingActions.add(new WrappedConsumer(Connection::flush)); // Paper - Optimize network
++            this.flushQueue(); // Canvas - connection threading
+         }
+     }
+ 
+@@ -535,53 +_,59 @@
+ 
+     // Paper start - Optimize network: Rewrite this to be safer if ran off main thread
+     private boolean flushQueue() {
+-        if (!this.isConnected()) {
+-            return true;
+-        }
+-        if (io.papermc.paper.util.MCUtil.isMainThread()) {
+-            return this.processQueue();
+-        } else if (this.isPending) {
+-            // Should only happen during login/status stages
+-            synchronized (this.pendingActions) {
+-                return this.processQueue();
+-            }
+-        }
+-        return false;
+-    }
+-
++        return this.processQueue(); // Canvas - connection threading
++    }
++
++    // Canvas start - connection threading
++    private final java.util.concurrent.atomic.AtomicBoolean flushingQueue = new java.util.concurrent.atomic.AtomicBoolean();
++
++    private static boolean canWrite(WrappedConsumer queued) {
++        return queued != null && (!(queued instanceof PacketSendAction packet) || packet.packet.isReady());
++    }
++
++    private boolean canWritePackets() {
++        return canWrite(this.pendingActions.peek());
++    }
++
++    // Canvas end
+     private boolean processQueue() {
+-        if (this.pendingActions.isEmpty()) {
++        // Canvas start - connection threading
++        if (!this.isConnected()) {
+             return true;
+         }
+ 
+-        // If we are on main, we are safe here in that nothing else should be processing queue off main anymore
+-        // But if we are not on main due to login/status, the parent is synchronized on packetQueue
+-        final java.util.Iterator<WrappedConsumer> iterator = this.pendingActions.iterator();
+-        while (iterator.hasNext()) {
+-            final WrappedConsumer queued = iterator.next(); // poll -> peek
+-
+-            // Fix NPE (Spigot bug caused by handleDisconnection())
+-            if (queued == null) {
+-                return true;
+-            }
+-
+-            if (queued.isConsumed()) {
+-                continue;
+-            }
+-
+-            if (queued instanceof PacketSendAction packetSendAction) {
+-                final Packet<?> packet = packetSendAction.packet;
+-                if (!packet.isReady()) {
++        while (this.canWritePackets()) {
++            final boolean set = this.flushingQueue.getAndSet(true);
++            try {
++                if (set) {
++                    // we didn't acquire the lock, break
+                     return false;
+                 }
+-            }
+-
+-            iterator.remove();
+-            if (queued.tryMarkConsumed()) {
+-                queued.accept(this);
++
++                ca.spottedleaf.concurrentutil.collection.MultiThreadedQueue<WrappedConsumer> queue =
++                    (ca.spottedleaf.concurrentutil.collection.MultiThreadedQueue<WrappedConsumer>)this.pendingActions;
++                WrappedConsumer holder;
++                for (;;) {
++                    // synchronise so that queue clears appear atomic
++                    synchronized (queue) {
++                        holder = queue.pollIf(Connection::canWrite);
++                    }
++                    if (holder == null) {
++                        break;
++                    }
++
++                    holder.accept(this);
++                }
++
++            } finally {
++                if (!set) {
++                    this.flushingQueue.set(false);
++                }
+             }
+         }
++
+         return true;
++        // Canvas end
+     }
+     // Paper end - Optimize network
+ 
+@@ -591,36 +_,15 @@
+     private static int tickSecond; // Purpur - Max joins per second
+     public void tick() {
+         this.flushQueue();
+-        // Paper start - Buffer joins to world
+-        if (Connection.currTick != net.minecraft.server.MinecraftServer.currentTick) {
+-            Connection.currTick = net.minecraft.server.MinecraftServer.currentTick;
+-            // Purpur start - Max joins per second
+-            if (org.purpurmc.purpur.PurpurConfig.maxJoinsPerSecond) {
+-                if (++Connection.tickSecond > 20) {
+-                    Connection.tickSecond = 0;
+-                    Connection.joinAttemptsThisTick = 0;
+-                }
+-            } else
+-            // Purpur end - Max joins per second
+-            Connection.joinAttemptsThisTick = 0;
+-        }
+-        // Paper end - Buffer joins to world
++        // Canvas - this is broken
+         if (this.packetListener instanceof TickablePacketListener tickablePacketListener) {
+             // Paper start - Buffer joins to world
+-            if (!(this.packetListener instanceof net.minecraft.server.network.ServerLoginPacketListenerImpl loginPacketListener)
+-                || loginPacketListener.state != net.minecraft.server.network.ServerLoginPacketListenerImpl.State.VERIFYING
+-                || Connection.joinAttemptsThisTick++ < MAX_PER_TICK) {
+-            // Paper start - detailed watchdog information
+-            net.minecraft.network.protocol.PacketUtils.packetProcessing.push(this.packetListener);
+-            try {
++            if (true) { // Canvas - connection threading
+             tickablePacketListener.tick();
+-            } finally {
+-                net.minecraft.network.protocol.PacketUtils.packetProcessing.pop();
+-            } // Paper end - detailed watchdog information
+             } // Paper end - Buffer joins to world
+         }
+ 
+-        if (!this.isConnected() && !this.disconnectionHandled) {
++        if (!this.isConnected()) { // Canvas - connection threading
+             this.handleDisconnection();
+         }
+ 
+@@ -635,6 +_,7 @@
+         if (this.bandwidthDebugMonitor != null) {
+             this.bandwidthDebugMonitor.tick();
+         }
++        this.tickPackets(); // Canvas - packet processor
+     }
+ 
+     protected void tickSecond() {
+@@ -862,10 +_,10 @@
+ 
+     public void handleDisconnection() {
+         if (this.channel != null && !this.channel.isOpen()) {
+-            if (this.disconnectionHandled) {
++            if (!this.disconnectionHandled.compareAndSet(false, true)) { // Canvas - connection threading
+                 // LOGGER.warn("handleDisconnection() called twice"); // Paper - Don't log useless message
+             } else {
+-                this.disconnectionHandled = true;
++                // this.disconnectionHandled = true; // Canvas - set above
+                 PacketListener packetListener = this.getPacketListener();
+                 PacketListener packetListener1 = packetListener != null ? packetListener : this.disconnectListener;
+                 if (packetListener1 != null) {
+@@ -893,6 +_,22 @@
+                                 ((InetSocketAddress) this.address).getAddress(), false).callEvent();
+                     }
+                 }
++                // Canvas start - connection threading
++                if (packetListener instanceof net.minecraft.server.network.ServerCommonPacketListenerImpl commonPacketListener) {
++                    net.minecraft.server.MinecraftServer.getServer().getPlayerList().removeConnection(
++                        commonPacketListener.getOwner().getName(),
++                        commonPacketListener.getOwner().getId(), this
++                    );
++                } else if (packetListener instanceof net.minecraft.server.network.ServerLoginPacketListenerImpl loginPacketListener) {
++                    if (loginPacketListener.state.ordinal() >= net.minecraft.server.network.ServerLoginPacketListenerImpl.State.VERIFYING.ordinal()) {
++                        net.minecraft.server.MinecraftServer.getServer().getPlayerList().removeConnection(
++                            loginPacketListener.authenticatedProfile.getName(),
++                            loginPacketListener.authenticatedProfile.getId(), this
++                        );
++                    }
++                }
++                this.removeFromAll();
++                // Canvas end
+                 // Paper end - Add PlayerConnectionCloseEvent
+             }
+         }
+@@ -913,16 +_,40 @@
+     // Paper start - Optimize network
+     public void clearPacketQueue() {
+         final net.minecraft.server.level.ServerPlayer player = getPlayer();
+-        for (final Consumer<Connection> queuedAction : this.pendingActions) {
+-            if (queuedAction instanceof PacketSendAction packetSendAction) {
+-                final Packet<?> packet = packetSendAction.packet;
+-                if (packet.hasFinishListener()) {
+-                    packet.onPacketDispatchFinish(player, null);
++        // Canvas start - connection threading
++        java.util.List<Connection.PacketSendAction> queuedPackets = new java.util.ArrayList<>();
++        // synchronise so that flushQueue does not poll values while the queue is being cleared
++        synchronized (this.pendingActions) {
++            Connection.WrappedConsumer consumer;
++            while ((consumer = this.pendingActions.poll()) != null) {
++                if (consumer instanceof Connection.PacketSendAction packetHolder) {
++                    queuedPackets.add(packetHolder);
+                 }
+             }
+         }
+-        this.pendingActions.clear();
+-    }
++
++        for (Connection.PacketSendAction queuedPacket : queuedPackets) {
++            Packet<?> packet = queuedPacket.packet;
++            if (packet.hasFinishListener()) {
++                packet.onPacketDispatchFinish(player, null);
++            }
++        }
++        // Canvas end
++    }
++    // Canvas start - connection threading
++
++    public void removeFromAll() {
++        for (final ServerLevel level : MinecraftServer.getServer().getAllLevels()) {
++            // remove from level
++            level.levelTickData.connections.remove(this);
++            level.networkRouter.clearFromRouter(this);
++            level.regioniser.computeForAllRegionsUnsynchronised((region) -> {
++                // remove from all regions
++                region.getData().tickData.connections.remove(this);
++            });
++        }
++    }
++    // Canvas end
+ 
+     private static class InnerUtil { // Attempt to hide these methods from ProtocolLib, so it doesn't accidently pick them up.
+ 

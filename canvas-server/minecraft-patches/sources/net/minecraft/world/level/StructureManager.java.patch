@@ -1,0 +1,21 @@
+--- a/net/minecraft/world/level/StructureManager.java
++++ b/net/minecraft/world/level/StructureManager.java
+@@ -78,7 +_,7 @@
+ 
+     public void fillStartsForStructure(Structure structure, LongSet structureRefs, Consumer<StructureStart> startConsumer) {
+         for (long l : structureRefs) {
+-            SectionPos sectionPos = SectionPos.of(new ChunkPos(l), this.level.getMinSectionY());
++            SectionPos sectionPos = SectionPos.of(ChunkPos.getX(l), this.level.getMinSectionY(), ChunkPos.getZ(l)); // Canvas - optimize getMobsAt
+             StructureStart startForStructure = this.getStartForStructure(
+                 sectionPos, structure, this.level.getChunk(sectionPos.x(), sectionPos.z(), ChunkStatus.STRUCTURE_STARTS)
+             );
+@@ -178,8 +_,7 @@
+     }
+ 
+     public Map<Structure, LongSet> getAllStructuresAt(BlockPos pos) {
+-        SectionPos sectionPos = SectionPos.of(pos);
+-        return this.level.getChunk(sectionPos.x(), sectionPos.z(), ChunkStatus.STRUCTURE_REFERENCES).getAllReferences();
++        return this.level.getChunk(pos.getX() >> 4, pos.getZ() >> 4, ChunkStatus.STRUCTURE_REFERENCES).getAllReferences(); // Canvas - optimize getMobsAt
+     }
+ 
+     public StructureCheckResult checkStructurePresence(ChunkPos chunkPos, Structure structure, StructurePlacement placement, boolean skipKnownStructures) {

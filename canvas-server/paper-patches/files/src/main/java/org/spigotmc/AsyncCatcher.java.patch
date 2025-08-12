@@ -1,0 +1,10 @@
+--- a/src/main/java/org/spigotmc/AsyncCatcher.java
++++ b/src/main/java/org/spigotmc/AsyncCatcher.java
+@@ -5,6 +_,7 @@
+ public class AsyncCatcher {
+ 
+     public static void catchOp(String reason) {
++        if (true) return; // Canvas - disable async catcher, we actually can run much more things async than upstream
+         if (!ca.spottedleaf.moonrise.common.util.TickThread.isTickThread()) { // Paper - chunk system
+             MinecraftServer.LOGGER.error("Thread {} failed main thread check: {}", Thread.currentThread().getName(), reason, new Throwable()); // Paper
+             throw new IllegalStateException("Asynchronous " + reason + "!");

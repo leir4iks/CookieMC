@@ -1,0 +1,18 @@
+--- a/net/minecraft/core/BlockPos.java
++++ b/net/minecraft/core/BlockPos.java
+@@ -347,7 +_,15 @@
+         };
+     }
+ 
++    // Canvas start
++    private static final io.canvasmc.canvas.util.IterateOutwardsCache ITERATE_OUTWARDS_CACHE = new io.canvasmc.canvas.util.IterateOutwardsCache(50);
++    private static final it.unimi.dsi.fastutil.longs.LongList HOGLIN_PIGLIN_CACHE = ITERATE_OUTWARDS_CACHE.getOrCompute(8, 4, 8);
+     public static Iterable<BlockPos> withinManhattan(BlockPos pos, int xSize, int ySize, int zSize) {
++        if (pos != io.canvasmc.canvas.util.IterateOutwardsCache.POS_ZERO) {
++            final it.unimi.dsi.fastutil.longs.LongList positions = xSize == 8 && ySize == 4 && zSize == 8 ? HOGLIN_PIGLIN_CACHE : ITERATE_OUTWARDS_CACHE.getOrCompute(xSize, ySize, zSize);
++            return new io.canvasmc.canvas.util.LongList2BlockPosMutableIterable(pos, positions);
++        }
++    // Canvas end
+         int i = xSize + ySize + zSize;
+         int x1 = pos.getX();
+         int y1 = pos.getY();

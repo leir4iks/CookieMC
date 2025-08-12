@@ -1,0 +1,28 @@
+--- a/net/minecraft/nbt/CompoundTag.java
++++ b/net/minecraft/nbt/CompoundTag.java
+@@ -54,7 +_,7 @@
+ 
+         private static CompoundTag loadCompound(DataInput input, NbtAccounter nbtAccounter) throws IOException {
+             nbtAccounter.accountBytes(48L);
+-            it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap<String, Tag> map = new it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap<>(8, 0.8f); // Paper - Reduce memory footprint of CompoundTag
++            it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap<String, Tag> map = new io.canvasmc.canvas.util.StringCanonizingOpenHashMap<>(8, 0.8f); // Paper - Reduce memory footprint of CompoundTag // Canvas - reduce memory footprint
+ 
+             byte b;
+             while ((b = input.readByte()) != 0) {
+@@ -171,7 +_,7 @@
+     }
+ 
+     public CompoundTag() {
+-        this(new it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap<>(8, 0.8f)); // Paper - Reduce memory footprint of CompoundTag
++        this(new io.canvasmc.canvas.util.StringCanonizingOpenHashMap<>(8, 0.8f)); // Paper - Reduce memory footprint of CompoundTag // Canvas - reduce memory footprint
+     }
+ 
+     @Override
+@@ -402,6 +_,7 @@
+ 
+     @Override
+     public CompoundTag copy() {
++        if (this.tags instanceof io.canvasmc.canvas.util.StringCanonizingOpenHashMap stringCanonizingTags) return new CompoundTag(io.canvasmc.canvas.util.StringCanonizingOpenHashMap.deepCopy(stringCanonizingTags, Tag::copy)); // Canvas - reduce memory footprint
+         // Paper start - Reduce memory footprint of CompoundTag
+         it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap<String, Tag> ret = new it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap<>(this.tags.size(), 0.8f);
+         java.util.Iterator<java.util.Map.Entry<String, Tag>> iterator = (this.tags instanceof it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap) ? ((it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap)this.tags).object2ObjectEntrySet().fastIterator() : this.tags.entrySet().iterator();

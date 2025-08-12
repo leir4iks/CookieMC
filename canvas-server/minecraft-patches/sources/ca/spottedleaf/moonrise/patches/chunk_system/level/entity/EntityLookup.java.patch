@@ -1,0 +1,68 @@
+--- a/ca/spottedleaf/moonrise/patches/chunk_system/level/entity/EntityLookup.java
++++ b/ca/spottedleaf/moonrise/patches/chunk_system/level/entity/EntityLookup.java
+@@ -6,6 +_,8 @@
+ import ca.spottedleaf.moonrise.common.util.CoordinateUtils;
+ import ca.spottedleaf.moonrise.common.util.WorldUtil;
+ import ca.spottedleaf.moonrise.patches.chunk_system.entity.ChunkSystemEntity;
++import io.canvasmc.canvas.entity.EntityStatusLock;
++import io.canvasmc.canvas.region.ServerRegions;
+ import net.minecraft.core.BlockPos;
+ import net.minecraft.server.level.FullChunkStatus;
+ import net.minecraft.util.AbortableIterationConsumer;
+@@ -93,8 +_,14 @@
+         if (entity == null) {
+             return null;
+         }
+-        final Visibility visibility = EntityLookup.getEntityStatus(entity);
+-        return visibility.isAccessible() ? entity : null;
++        // Canvas start
++        final FullChunkStatus entityStatus = ((ChunkSystemEntity) entity).moonrise$getChunkStatus();
++        return switch (entityStatus) {
++            case INACCESSIBLE -> null;
++            case FULL, BLOCK_TICKING, ENTITY_TICKING -> entity;
++            case null -> null;
++        };
++        // Canvas end
+     }
+ 
+     @Override
+@@ -235,6 +_,7 @@
+                                    final boolean created, final boolean destroyed) {
+         this.checkThread(entity, "Entity status change must only happen on the main thread");
+ 
++        try { entity.statusLock.acquire(); // Canvas - threadsafe entity status changes
+         if (((ChunkSystemEntity)entity).moonrise$isUpdatingSectionStatus()) {
+             // recursive status update
+             LOGGER.error("Cannot recursively update entity chunk status for entity " + entity, new Throwable());
+@@ -328,6 +_,7 @@
+                 slices.stopPreventingStatusUpdates(false);
+             }
+         }
++        } finally { entity.statusLock.release(); } // Canvas - threadsafe entity status changes
+     }
+ 
+     public void chunkStatusChange(final int x, final int z, final FullChunkStatus newStatus) {
+@@ -398,7 +_,14 @@
+             return Visibility.TICKING;
+         }
+         final FullChunkStatus entityStatus = ((ChunkSystemEntity)entity).moonrise$getChunkStatus();
+-        return Visibility.fromFullChunkStatus(entityStatus == null ? FullChunkStatus.INACCESSIBLE : entityStatus);
++        // Canvas start
++        return switch (entityStatus) {
++            case INACCESSIBLE -> Visibility.HIDDEN;
++            case FULL, BLOCK_TICKING -> Visibility.TRACKED;
++            case ENTITY_TICKING -> Visibility.TICKING;
++            case null -> Visibility.HIDDEN;
++        };
++        // Canvas end
+     }
+ 
+     protected boolean addEntity(final Entity entity, final boolean fromDisk, final boolean event) {
+@@ -990,6 +_,7 @@
+             EntityLookup.this.removeEntityCallback(entity);
+ 
+             this.entity.setLevelCallback(NoOpCallback.INSTANCE);
++            ServerRegions.getTickData(entity.level().level()).removeEntity(entity); // Canvas - Threaded Regions
+         }
+     }
+ 

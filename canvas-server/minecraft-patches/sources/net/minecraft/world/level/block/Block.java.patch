@@ -1,0 +1,43 @@
+--- a/net/minecraft/world/level/block/Block.java
++++ b/net/minecraft/world/level/block/Block.java
+@@ -431,8 +_,8 @@
+             ItemEntity itemEntity = itemEntitySupplier.get();
+             itemEntity.setDefaultPickUpDelay();
+             // CraftBukkit start
+-            if (level.captureDrops != null) {
+-                level.captureDrops.add(itemEntity);
++            if (level.captureDrops.get() != null) { // Canvas - threadlocal
++                level.captureDrops.get().add(itemEntity); // Canvas - threadlocal
+             } else {
+                 level.addFreshEntity(itemEntity);
+             }
+@@ -641,7 +_,19 @@
+     }
+     // CraftBukkit end
+ 
+-    record ShapePairKey(VoxelShape first, VoxelShape second) {
++    // Canvas start - cache hash
++    static class ShapePairKey {
++
++        private final VoxelShape first;
++        private final VoxelShape second;
++        private final int hash;
++
++        private ShapePairKey(VoxelShape first, VoxelShape second) {
++            this.first = first;
++            this.second = second;
++            this.hash = System.identityHashCode(this.first) * 31 + System.identityHashCode(this.second);
++        }
++    // Canvas end
+         @Override
+         public boolean equals(Object other) {
+             return other instanceof Block.ShapePairKey shapePairKey && this.first == shapePairKey.first && this.second == shapePairKey.second;
+@@ -649,7 +_,7 @@
+ 
+         @Override
+         public int hashCode() {
+-            return System.identityHashCode(this.first) * 31 + System.identityHashCode(this.second);
++            return this.hash; // Canvas - cache hash
+         }
+     }
+ }

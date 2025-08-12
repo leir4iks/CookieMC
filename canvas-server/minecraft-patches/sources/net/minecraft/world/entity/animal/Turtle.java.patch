@@ -1,0 +1,30 @@
+--- a/net/minecraft/world/entity/animal/Turtle.java
++++ b/net/minecraft/world/entity/animal/Turtle.java
+@@ -484,6 +_,13 @@
+         protected boolean isValidTarget(LevelReader level, BlockPos pos) {
+             return level.getBlockState(pos).is(Blocks.WATER);
+         }
++
++        // Canvas start - Async target finding
++        @Override
++        protected TypeToCheck typeToCheck() {
++            return TypeToCheck.TurtleToWater;
++        }
++        // Canvas end - Async target finding
+     }
+ 
+     static class TurtleLayEggGoal extends MoveToBlockGoal {
+@@ -539,6 +_,13 @@
+         protected boolean isValidTarget(LevelReader level, BlockPos pos) {
+             return level.isEmptyBlock(pos.above()) && TurtleEggBlock.isSand(level, pos);
+         }
++
++        // Canvas start - Async target finding
++        @Override
++        protected TypeToCheck typeToCheck() {
++            return TypeToCheck.TurtleLay;
++        }
++        // Canvas end - Async target finding
+     }
+ 
+     static class TurtleMoveControl extends org.purpurmc.purpur.controller.MoveControllerWASD { // Purpur - Ridables

@@ -1,0 +1,11 @@
+--- a/net/minecraft/world/entity/ai/attributes/AttributeSupplier.java
++++ b/net/minecraft/world/entity/ai/attributes/AttributeSupplier.java
+@@ -11,7 +_,7 @@
+     private final Map<Holder<Attribute>, AttributeInstance> instances;
+ 
+     AttributeSupplier(Map<Holder<Attribute>, AttributeInstance> instances) {
+-        this.instances = instances;
++        this.instances = new io.canvasmc.canvas.util.AttributeInstanceArrayMap(instances); // Canvas - optimize
+     }
+ 
+     public AttributeInstance getAttributeInstance(Holder<Attribute> attribute) {

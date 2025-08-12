@@ -1,0 +1,32 @@
+--- a/net/minecraft/world/phys/shapes/CubePointRange.java
++++ b/net/minecraft/world/phys/shapes/CubePointRange.java
+@@ -3,23 +_,25 @@
+ import it.unimi.dsi.fastutil.doubles.AbstractDoubleList;
+ 
+ public class CubePointRange extends AbstractDoubleList {
+-    private final int parts;
++    private final int size; // Canvas - replace parts by size
++    private final double scale; // Canvas - replace division by multiplication
+ 
+     public CubePointRange(int parts) {
+         if (parts <= 0) {
+             throw new IllegalArgumentException("Need at least 1 part");
+         } else {
+-            this.parts = parts;
++            this.size = parts + 1; // Canvas - replace parts by size
+         }
++        this.scale = 1.0D / parts; // Canvas - replace division by multiplication
+     }
+ 
+     @Override
+     public double getDouble(int value) {
+-        return (double)value / this.parts;
++        return value * this.scale; // Canvas - replace division by multiplication
+     }
+ 
+     @Override
+     public int size() {
+-        return this.parts + 1;
++        return this.size; // Canvas - replace parts by size
+     }
+ }

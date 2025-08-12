@@ -1,0 +1,14 @@
+--- a/net/minecraft/world/entity/ai/behavior/PoiCompetitorScan.java
++++ b/net/minecraft/world/entity/ai/behavior/PoiCompetitorScan.java
+@@ -19,6 +_,11 @@
+                     instance,
+                     (jobSite, nearestLivingEntities) -> (level, villager, gameTime) -> {
+                         GlobalPos globalPos = instance.get(jobSite);
++                        // Canvas start - Threaded Regions
++                        if (globalPos.dimension() != level.dimension() || !io.canvasmc.canvas.region.ServerRegions.isTickThreadFor(level, globalPos.pos())) {
++                            return true;
++                        }
++                        // Canvas end
+                         level.getPoiManager()
+                             .getType(globalPos.pos())
+                             .ifPresent(

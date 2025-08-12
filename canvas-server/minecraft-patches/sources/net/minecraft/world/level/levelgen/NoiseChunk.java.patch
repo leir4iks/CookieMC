@@ -1,0 +1,47 @@
+--- a/net/minecraft/world/level/levelgen/NoiseChunk.java
++++ b/net/minecraft/world/level/levelgen/NoiseChunk.java
+@@ -237,10 +_,7 @@
+     }
+ 
+     public void initializeForFirstCellX() {
+-        if (this.interpolating) {
+-            throw new IllegalStateException("Staring interpolation twice");
+-        } else {
+-            this.interpolating = true;
++        { // Canvas - rewrite moonrise executor
+             this.interpolationCounter = 0L;
+             this.fillSlice(true, this.firstCellX);
+         }
+@@ -326,11 +_,7 @@
+     }
+ 
+     public void stopInterpolation() {
+-        if (!this.interpolating) {
+-            throw new IllegalStateException("Staring interpolation twice");
+-        } else {
+-            this.interpolating = false;
+-        }
++        // Canvas - rewrite moonrise executor
+     }
+ 
+     public void swapSlices() {
+@@ -527,8 +_,7 @@
+         public double compute(DensityFunction.FunctionContext context) {
+             if (context != NoiseChunk.this) {
+                 return this.noiseFiller.compute(context);
+-            } else if (!NoiseChunk.this.interpolating) {
+-                throw new IllegalStateException("Trying to sample interpolator outside the interpolation loop");
++            // Canvas - rewrite moonrise executor
+             } else {
+                 int i = NoiseChunk.this.inCellX;
+                 int i1 = NoiseChunk.this.inCellY;
+@@ -741,8 +_,7 @@
+         public double compute(DensityFunction.FunctionContext context) {
+             if (context != NoiseChunk.this) {
+                 return this.noiseFiller.compute(context);
+-            } else if (!NoiseChunk.this.interpolating) {
+-                throw new IllegalStateException("Trying to sample interpolator outside the interpolation loop");
++            // Canvas - rewrite moonrise executor
+             } else {
+                 return NoiseChunk.this.fillingCell
+                     ? Mth.lerp3(

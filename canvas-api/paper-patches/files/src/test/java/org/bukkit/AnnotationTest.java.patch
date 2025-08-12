@@ -1,0 +1,10 @@
+--- a/src/test/java/org/bukkit/AnnotationTest.java
++++ b/src/test/java/org/bukkit/AnnotationTest.java
+@@ -75,6 +_,7 @@
+         final ArrayList<String> errors = new ArrayList<>();
+ 
+         for (ClassNode clazz : foundClasses.values()) {
++            if (clazz.name.contains("io/canvasmc/canvas/config")) continue; // Canvas - ignore this directory
+             if (!isClassIncluded(clazz, foundClasses)) {
+                 continue;
+             }

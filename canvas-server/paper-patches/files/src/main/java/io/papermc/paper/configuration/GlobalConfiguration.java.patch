@@ -1,0 +1,45 @@
+--- a/src/main/java/io/papermc/paper/configuration/GlobalConfiguration.java
++++ b/src/main/java/io/papermc/paper/configuration/GlobalConfiguration.java
+@@ -11,6 +_,7 @@
+ import net.minecraft.core.component.DataComponents;
+ import net.minecraft.network.protocol.Packet;
+ import net.minecraft.network.protocol.game.ServerboundPlaceRecipePacket;
++import net.minecraft.server.MinecraftServer;
+ import net.minecraft.resources.ResourceLocation;
+ import org.jspecify.annotations.Nullable;
+ import org.slf4j.Logger;
+@@ -24,6 +_,8 @@
+ import java.util.Objects;
+ import java.util.OptionalInt;
+ import java.util.Set;
++import java.util.concurrent.ExecutorService;
++import java.util.concurrent.ThreadPoolExecutor;
+ 
+ @SuppressWarnings({"CanBeFinal", "FieldCanBeLocal", "FieldMayBeFinal", "NotNullFieldNotInitialized", "InnerClassMayBeStatic"})
+ public class GlobalConfiguration extends ConfigurationPart {
+@@ -227,7 +_,7 @@
+ 
+         @PostProcess
+         private void postProcess() {
+-            ca.spottedleaf.moonrise.common.util.MoonriseCommon.adjustWorkerThreads(this.workerThreads, this.ioThreads);
++            ca.spottedleaf.moonrise.common.util.MoonriseCommon.init(this.workerThreads, this.ioThreads); // Canvas - rewrite moonrise executor
+             String newChunkSystemGenParallelism = this.genParallelism;
+             if (newChunkSystemGenParallelism.equalsIgnoreCase("default")) {
+                 newChunkSystemGenParallelism = "true";
+@@ -337,9 +_,13 @@
+                     _chatExecutorMaxSize = _chatExecutorCoreSize;
+                 }
+ 
+-                java.util.concurrent.ThreadPoolExecutor executor = (java.util.concurrent.ThreadPoolExecutor) net.minecraft.server.MinecraftServer.getServer().chatExecutor;
+-                executor.setCorePoolSize(_chatExecutorCoreSize);
+-                executor.setMaximumPoolSize(_chatExecutorMaxSize);
++                // Canvas start - virtual threads
++                ExecutorService executor = MinecraftServer.getServer().chatExecutor;
++                if (executor instanceof ThreadPoolExecutor threadPoolExecutor) {
++                    threadPoolExecutor.setCorePoolSize(_chatExecutorCoreSize);
++                    threadPoolExecutor.setMaximumPoolSize(_chatExecutorMaxSize);
++                }
++                // Canvas end
+             }
+         }
+         public int maxJoinsPerTick = 5;

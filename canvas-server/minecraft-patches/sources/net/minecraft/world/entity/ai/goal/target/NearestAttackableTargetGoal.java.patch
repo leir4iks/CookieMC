@@ -1,0 +1,73 @@
+--- a/net/minecraft/world/entity/ai/goal/target/NearestAttackableTargetGoal.java
++++ b/net/minecraft/world/entity/ai/goal/target/NearestAttackableTargetGoal.java
+@@ -41,12 +_,52 @@
+         this.targetConditions = TargetingConditions.forCombat().range(this.getFollowDistance()).selector(selector);
+     }
+ 
++    // Canvas start - Async target finding
++    protected boolean poll() {
++        if (!(this.mob.getGoalCtx().result() instanceof LivingEntity target)) return false;
++        ServerLevel serverLevel = getServerLevel(this.mob);
++        if (serverLevel == null || !target.isAlive() || !this.getTargetConditions().test(serverLevel, this.mob, target)) return false;
++        this.target = target;
++        return true;
++    }
++
++    protected void findTargetAsync() {
++        if (!io.canvasmc.canvas.Config.INSTANCE.entities.asyncTargetFinding.searchEntity) {
++            findTarget();
++            return;
++        }
++        this.target = null;
++        final Mob mob = this.mob;
++        final var ctx = mob.getGoalCtx();
++        if (!ctx.state) return;
++        final double x = mob.getX();
++        final double y = mob.getEyeY();
++        final double z = mob.getZ();
++        final TargetingConditions targetConditions = this.getTargetConditions().copy();
++        final Class<T> targetType = this.targetType;
++        final AABB targetSearch = getTargetSearchArea(this.getFollowDistance());
++        final ServerLevel serverLevel = getServerLevel(mob);
++        ctx.wake = () -> {
++            if (targetType != Player.class && targetType != ServerPlayer.class) {
++                return serverLevel.getNearestEntity(mob.level().getEntitiesOfClass(targetType, targetSearch, entity -> entity != null && entity != mob && entity.isAlive()), targetConditions, mob, x, y, z);
++            } else {
++                return serverLevel.getNearestPlayer(targetConditions, mob, x, y, z);
++            }
++        };
++    }
++    // Canvas end - Async target finding
++
+     @Override
+     public boolean canUse() {
++        // Canvas start - Async target finding
++        if (poll()) {
++            return true;
++        }
++        // Canvas end - Async target finding
+         if (this.randomInterval > 0 && this.mob.getRandom().nextInt(this.randomInterval) != 0) {
+             return false;
+         } else {
+-            this.findTarget();
++            this.findTargetAsync(); // Async target finding
+             return this.target != null;
+         }
+     }
+@@ -57,6 +_,7 @@
+ 
+     protected void findTarget() {
+         ServerLevel serverLevel = getServerLevel(this.mob);
++
+         if (this.targetType != Player.class && this.targetType != ServerPlayer.class) {
+             this.target = serverLevel.getNearestEntity(
+                 this.mob.level().getEntitiesOfClass(this.targetType, this.getTargetSearchArea(this.getFollowDistance()), entity -> true),
+@@ -81,7 +_,7 @@
+         this.target = target;
+     }
+ 
+-    private TargetingConditions getTargetConditions() {
++    public TargetingConditions getTargetConditions() { // Canvas - private -> public
+         return this.targetConditions.range(this.getFollowDistance());
+     }
+ }

@@ -1,0 +1,11 @@
+--- a/net/minecraft/world/level/saveddata/SavedData.java
++++ b/net/minecraft/world/level/saveddata/SavedData.java
+@@ -5,7 +_,7 @@
+ import net.minecraft.server.level.ServerLevel;
+ 
+ public abstract class SavedData {
+-    private boolean dirty;
++    private volatile boolean dirty; // Canvas - make map data thread-safe
+ 
+     public void setDirty() {
+         this.setDirty(true);

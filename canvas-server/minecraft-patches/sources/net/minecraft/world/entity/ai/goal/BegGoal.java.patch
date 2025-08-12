@@ -1,0 +1,59 @@
+--- a/net/minecraft/world/entity/ai/goal/BegGoal.java
++++ b/net/minecraft/world/entity/ai/goal/BegGoal.java
+@@ -27,8 +_,43 @@
+         this.setFlags(EnumSet.of(Goal.Flag.LOOK));
+     }
+ 
++    // Canvas start - Async target finding
++    protected boolean poll() {
++        if (!(this.wolf.getGoalCtx().result() instanceof Player target)) return false;
++        if (target == null) return false;
++        ServerLevel serverLevel = getServerLevel(this.wolf);
++        if (serverLevel == null || !target.isAlive() || !playerHoldingInteresting(target)) return false;
++        this.player = target;
++        return true;
++    }
++
++    private void findTargetAsync() {
++        final Wolf wolf = this.wolf;
++        final var ctx = wolf.getGoalCtx();
++        if (!ctx.state) return;
++        final ServerLevel serverLevel = getServerLevel(wolf);
++        final TargetingConditions begTargeting = this.begTargeting;
++        ctx.wake = () -> {
++            var player = serverLevel.getNearestPlayer(begTargeting, wolf);
++            if (player != null && playerHoldingInteresting(player)) {
++                return player;
++            }
++            return null;
++        };
++    }
++    // Canvas end - Async target finding
++
+     @Override
+     public boolean canUse() {
++        // Canvas start - Async target finding
++        if (poll()) {
++            return true;
++        }
++        if (io.canvasmc.canvas.Config.INSTANCE.entities.asyncTargetFinding.searchEntity) {
++            findTargetAsync();
++            return false;
++        }
++        // Canvas end - Async target finding
+         this.player = this.level.getNearestPlayer(this.begTargeting, this.wolf);
+         return this.player != null && this.playerHoldingInteresting(this.player);
+     }
+@@ -59,10 +_,10 @@
+         this.lookTime--;
+     }
+ 
+-    private boolean playerHoldingInteresting(Player player) {
++    private static boolean playerHoldingInteresting(Player player) { // Canvas start - Async target finding - static
+         for (InteractionHand interactionHand : InteractionHand.values()) {
+             ItemStack itemInHand = player.getItemInHand(interactionHand);
+-            if (itemInHand.is(Items.BONE) || this.wolf.isFood(itemInHand)) {
++            if (itemInHand.is(Items.BONE) || itemInHand.is(net.minecraft.tags.ItemTags.WOLF_FOOD)) { // Canvas end - Async target finding
+                 return true;
+             }
+         }

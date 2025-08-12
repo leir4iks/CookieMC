@@ -1,0 +1,15 @@
+--- a/net/minecraft/world/level/block/MultifaceSpreader.java
++++ b/net/minecraft/world/level/block/MultifaceSpreader.java
+@@ -148,6 +_,12 @@
+         }
+ 
+         default boolean placeBlock(LevelAccessor level, MultifaceSpreader.SpreadPos pos, BlockState state, boolean markForPostprocessing) {
++            // Canvas start - null handling
++            if (pos.source() == null || pos.pos() == null) {
++                net.minecraft.server.MinecraftServer.LOGGER.warn("Invalid SpreadPos with null source or position: {}", pos);
++                return false;
++            }
++            // Canvas end
+             BlockState stateForPlacement = this.getStateForPlacement(state, level, pos.pos(), pos.face());
+             if (stateForPlacement != null) {
+                 if (markForPostprocessing) {

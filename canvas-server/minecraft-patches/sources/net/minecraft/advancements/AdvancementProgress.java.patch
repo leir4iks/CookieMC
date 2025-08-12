@@ -1,0 +1,11 @@
+--- a/net/minecraft/advancements/AdvancementProgress.java
++++ b/net/minecraft/advancements/AdvancementProgress.java
+@@ -49,7 +_,7 @@
+     }
+ 
+     public AdvancementProgress() {
+-        this.criteria = Maps.newHashMap();
++        this.criteria = new it.unimi.dsi.fastutil.objects.Reference2ReferenceOpenHashMap<>(); // Canvas - optimized collection
+     }
+ 
+     public void update(AdvancementRequirements requirements) {

@@ -1,0 +1,35 @@
+--- a/net/minecraft/world/level/storage/LevelStorageSource.java
++++ b/net/minecraft/world/level/storage/LevelStorageSource.java
+@@ -521,15 +_,26 @@
+         private void saveLevelData(CompoundTag tag) {
+             Path path = this.levelDirectory.path();
+ 
++            // Canvas start - Async playerdata saving
++            // Save level.dat asynchronously
++            var nbtBytes = new it.unimi.dsi.fastutil.io.FastByteArrayOutputStream(65536);
+             try {
+-                Path path1 = Files.createTempFile(path, "level", ".dat");
+-                NbtIo.writeCompressed(tag, path1);
+-                Path path2 = this.levelDirectory.oldDataFile();
+-                Path path3 = this.levelDirectory.dataFile();
+-                Util.safeReplaceFile(path3, path1, path2);
++                NbtIo.writeCompressed(tag, nbtBytes);
+             } catch (Exception var6) {
+-                LevelStorageSource.LOGGER.error("Failed to save level {}", path, var6);
++                LevelStorageSource.LOGGER.error("Failed to encode level {}", path, var6);
+             }
++            io.canvasmc.canvas.server.AsyncPlayerDataSaving.submit(() -> {
++                try {
++                    Path path1 = Files.createTempFile(path, "level", ".dat");
++                    org.apache.commons.io.FileUtils.writeByteArrayToFile(path1.toFile(), nbtBytes.array, 0, nbtBytes.length, false);
++                    Path path2 = this.levelDirectory.oldDataFile();
++                    Path path3 = this.levelDirectory.dataFile();
++                    Util.safeReplaceFile(path3, path1, path2);
++                } catch (Exception var6) {
++                    LevelStorageSource.LOGGER.error("Failed to save level {}", path, var6);
++                }
++            });
++            // Canvas end - Async playerdata saving
+         }
+ 
+         public Optional<Path> getIconFile() {

@@ -1,5 +1,5 @@
 name: "Bug Report"
-description: "Report a bug in cookie"
+description: "Report a bug in Canvas"
 labels: ["bug"]
 body:
   - type: markdown
@@ -31,9 +31,9 @@ body:
       description: "Provide logs or screenshots if applicable. Please include a spark report aswell if relevant with the argument `--thread *`"
       render: shell
   - type: input
-    id: cookie-version
+    id: canvas-version
     attributes:
-      label: "cookie Version"
+      label: "Canvas Version"
       placeholder: "e.g., 1.21.4"
     validations:
       required: true

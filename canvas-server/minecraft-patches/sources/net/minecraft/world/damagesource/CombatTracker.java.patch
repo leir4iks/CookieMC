@@ -1,0 +1,20 @@
+--- a/net/minecraft/world/damagesource/CombatTracker.java
++++ b/net/minecraft/world/damagesource/CombatTracker.java
+@@ -63,7 +_,7 @@
+     }
+ 
+     private Component getMessageForAssistedFall(Entity entity, Component entityDisplayName, String hasWeaponTranslationKey, String noWeaponTranslationKey) {
+-        ItemStack itemStack = entity instanceof LivingEntity livingEntity ? livingEntity.getMainHandItem() : ItemStack.EMPTY;
++        ItemStack itemStack = entity instanceof LivingEntity livingEntity && io.canvasmc.canvas.region.ServerRegions.isTickThreadFor(livingEntity) ? livingEntity.getMainHandItem() : ItemStack.EMPTY; // Canvas - Threaded Regions
+         return !itemStack.isEmpty() && (org.purpurmc.purpur.PurpurConfig.playerDeathsAlwaysShowItem || itemStack.has(DataComponents.CUSTOM_NAME)) // Purpur - always show item in player death messages
+             ? Component.translatable(hasWeaponTranslationKey, this.mob.getDisplayName(), entityDisplayName, itemStack.getDisplayName())
+             : Component.translatable(noWeaponTranslationKey, this.mob.getDisplayName(), entityDisplayName);
+@@ -90,7 +_,7 @@
+ 
+     @Nullable
+     private static Component getDisplayName(@Nullable Entity entity) {
+-        return entity == null ? null : entity.getDisplayName();
++        return entity == null || !io.canvasmc.canvas.region.ServerRegions.isTickThreadFor(entity) ? null : entity.getDisplayName(); // Canvas - Threaded Regions
+     }
+ 
+     public Component getDeathMessage() {

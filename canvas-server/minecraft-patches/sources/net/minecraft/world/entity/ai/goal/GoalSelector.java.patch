@@ -1,0 +1,271 @@
+--- a/net/minecraft/world/entity/ai/goal/GoalSelector.java
++++ b/net/minecraft/world/entity/ai/goal/GoalSelector.java
+@@ -1,14 +_,14 @@
+ package net.minecraft.world.entity.ai.goal;
+ 
+ import com.google.common.annotations.VisibleForTesting;
++import io.canvasmc.canvas.Config;
++import io.canvasmc.canvas.util.ConcurrentSet;
+ import it.unimi.dsi.fastutil.objects.ObjectLinkedOpenHashSet;
+ import java.util.EnumMap;
+ import java.util.EnumSet;
+ import java.util.Map;
+ import java.util.Set;
+ import java.util.function.Predicate;
+-import net.minecraft.util.profiling.Profiler;
+-import net.minecraft.util.profiling.ProfilerFiller;
+ 
+ public class GoalSelector {
+     private static final WrappedGoal NO_GOAL = new WrappedGoal(Integer.MAX_VALUE, new Goal() {
+@@ -23,24 +_,39 @@
+         }
+     };
+     private final Map<Goal.Flag, WrappedGoal> lockedFlags = new EnumMap<>(Goal.Flag.class);
+-    private final Set<WrappedGoal> availableGoals = new ObjectLinkedOpenHashSet<>();
++    private final Set<WrappedGoal> availableGoals = new ConcurrentSet<>(); // Canvas - concurrent
+     private static final Goal.Flag[] GOAL_FLAG_VALUES = Goal.Flag.values(); // Paper - remove streams from GoalSelector
+     private final ca.spottedleaf.moonrise.common.set.OptimizedSmallEnumSet<net.minecraft.world.entity.ai.goal.Goal.Flag> goalTypes = new ca.spottedleaf.moonrise.common.set.OptimizedSmallEnumSet<>(Goal.Flag.class); // Paper - remove streams from GoalSelector
+     private int curRate; // Paper - EAR 2
+ 
++    // Canvas start - Async target finding
++    private boolean availableGoalsDirty = true;
++    private WrappedGoal @org.jetbrains.annotations.Nullable[] ctxGoals = null;
++    private int ctxIndex = 0;
++    public int ctxState = -1;
++    public final io.canvasmc.canvas.entity.ai.Waker ctx = new io.canvasmc.canvas.entity.ai.Waker();
++    // Canvas end - Async target finding
++
+     public void addGoal(int priority, Goal goal) {
+         this.availableGoals.add(new WrappedGoal(priority, goal));
++        availableGoalsDirty = true; // Canvas - Async target finding
+     }
+ 
+     @VisibleForTesting
+     public void removeAllGoals(Predicate<Goal> filter) {
+         this.availableGoals.removeIf(wrappedGoal -> filter.test(wrappedGoal.getGoal()));
++        availableGoalsDirty = true; // Canvas - Async target finding
+     }
+ 
+     // Paper start - EAR 2
+-    public boolean inactiveTick() {
++    public boolean inactiveTick(int tickRate, boolean inactive) {
++        // Canvas start
++        if (inactive && !Config.INSTANCE.entities.dynamicActivationofBrain.enabled) tickRate = 4; // reset to Paper's
++        tickRate = Math.min(tickRate, 3);
+         this.curRate++;
+-        return this.curRate % 3 == 0; // TODO newGoalRate was already unused in 1.20.4, check if this is correct
++        //return this.curRate % 3 == 0; // TODO newGoalRate was already unused in 1.20.4, check if this is correct
++        return this.curRate % tickRate == 0;
++        // Canvas end
+     }
+ 
+     public boolean hasTasks() {
+@@ -61,18 +_,19 @@
+         }
+ 
+         this.availableGoals.removeIf(wrappedGoal1 -> wrappedGoal1.getGoal() == goal);
++        availableGoalsDirty = true; // Canvas - Async target finding
+     }
+ 
+     // Paper start - Perf: optimize goal types
+     private static boolean goalContainsAnyFlags(WrappedGoal goal, ca.spottedleaf.moonrise.common.set.OptimizedSmallEnumSet<Goal.Flag> flags) {
+-        return goal.getFlags().hasCommonElements(flags);
++        return goal.getFlags().hasCommonElements(flags); // Canvas - Async target finding - inline diff
+     }
+ 
+     private static boolean goalCanBeReplacedForAllFlags(WrappedGoal goal, Map<Goal.Flag, WrappedGoal> flag) {
+         long flagIterator = goal.getFlags().getBackingSet();
+         int wrappedGoalSize = goal.getFlags().size();
+         for (int i = 0; i < wrappedGoalSize; ++i) {
+-            final Goal.Flag flag1 = GOAL_FLAG_VALUES[Long.numberOfTrailingZeros(flagIterator)];
++            final Goal.Flag flag1 = GOAL_FLAG_VALUES[Long.numberOfTrailingZeros(flagIterator)]; // Canvas - Async target finding - inline diff
+             flagIterator ^= ca.spottedleaf.concurrentutil.util.IntegerUtil.getTrailingBit(flagIterator);
+             // Paper end - Perf: optimize goal types
+             if (!flag.getOrDefault(flag1, NO_GOAL).canBeReplacedBy(goal)) {
+@@ -83,9 +_,135 @@
+         return true;
+     }
+ 
++    // Canvas start - Async target finding
++    public final boolean poll() {
++        if (ctxState == -1 || this.ctxGoals == null || ctx.wake != null || ctxGoals.length == 0) {
++            return false;
++        }
++        if (ctxState == 0) {
++            while (ctxIndex < this.ctxGoals.length) {
++                WrappedGoal goal = this.ctxGoals[ctxIndex];
++                // entity tempt
++                if (goal.isRunning() && (goalContainsAnyFlags(goal, this.goalTypes) || !goal.canContinueToUse())) {
++                    ctx.state = false;
++                    if (ctx.wake != null) {
++                        return true;
++                    }
++                    goal.stop();
++                }
++
++                ctxIndex++;
++                ctx.state = true;
++            }
++
++            for (Goal.Flag flag : GOAL_FLAG_VALUES) {
++                var goal = this.lockedFlags.get(flag);
++                if (goal != null && !goal.isRunning()) {
++                    this.lockedFlags.remove(flag);
++                }
++            }
++
++            ctxIndex = 0;
++            ctx.state = true;
++            ctxState = 1;
++        }
++        if (ctxState == 1) {
++            while (ctxIndex < this.ctxGoals.length) {
++                WrappedGoal goal = this.ctxGoals[ctxIndex];
++                var flags = goal.getFlags();
++                // entity and block
++                if (!goal.isRunning() && !flags.hasCommonElements(this.goalTypes)) {
++                    // inline
++                    boolean result = true;
++                    long flagIterator1 = flags.getBackingSet();
++                    int wrappedGoalSize1 = flags.size();
++                    for (int i1 = 0; i1 < wrappedGoalSize1; ++i1) {
++                        final Goal.Flag flag1 = GOAL_FLAG_VALUES[Long.numberOfTrailingZeros(flagIterator1)];
++                        flagIterator1 ^= ca.spottedleaf.concurrentutil.util.IntegerUtil.getTrailingBit(flagIterator1);
++                        if (!this.lockedFlags.getOrDefault(flag1, NO_GOAL).canBeReplacedBy(goal)) {
++                            result = false;
++                            break;
++                        }
++                    }
++                    if (result) {
++                        if (goal.canUse()) {
++                            long flagIterator = flags.getBackingSet();
++                            int wrappedGoalSize = flags.size();
++                            for (int i = 0; i < wrappedGoalSize; ++i) {
++                                final Goal.Flag flag = GOAL_FLAG_VALUES[Long.numberOfTrailingZeros(flagIterator)];
++                                flagIterator ^= ca.spottedleaf.concurrentutil.util.IntegerUtil.getTrailingBit(flagIterator);
++                                WrappedGoal wrappedGoal1 = this.lockedFlags.getOrDefault(flag, NO_GOAL);
++                                wrappedGoal1.stop();
++                                this.lockedFlags.put(flag, goal);
++                            }
++
++                            goal.start();
++                        }
++                        ctx.state = false;
++                        if (ctx.wake != null) {
++                            return true;
++                        }
++                    }
++                }
++                // entity alert other
++                if (!ctx.state) {
++                    switch (goal.getGoal()) {
++                        case net.minecraft.world.entity.ai.goal.target.HurtByTargetGoal t -> t.poll();
++                        case net.minecraft.world.entity.ai.goal.target.ResetUniversalAngerTargetGoal<?> t -> t.poll();
++                        default -> {}
++                    }
++                }
++                ctxIndex++;
++                ctx.state = true;
++            }
++
++            ctxIndex = 0;
++            ctx.state = true;
++            ctxState = 2;
++        }
++        if (ctxState == 2) {
++            while (ctxIndex < this.ctxGoals.length) {
++                WrappedGoal goal = this.ctxGoals[ctxIndex];
++                if (goal.isRunning()) {
++                    goal.tick();
++                }
++                ctxIndex++;
++            }
++
++            ctxState = -1;
++            ctxIndex = 0;
++            ctx.state = true;
++        }
++        if (ctxState == 3) {
++            while (ctxIndex < this.ctxGoals.length) {
++                WrappedGoal goal = this.ctxGoals[ctxIndex];
++                if (goal.isRunning() && goal.requiresUpdateEveryTick()) {
++                    goal.tick();
++                }
++                ctxIndex++;
++            }
++
++            ctxState = -1;
++            ctxIndex = 0;
++            ctx.state = true;
++        }
++        return false;
++    }
++    // Canvas end - Async target finding
++
+     public void tick() {
+-        ProfilerFiller profilerFiller = Profiler.get();
+-        profilerFiller.push("goalCleanup");
++        // Canvas start - Async target finding
++        if (io.canvasmc.canvas.Config.INSTANCE.entities.asyncTargetFinding.enabled) {
++            if (this.ctxState == -1) {
++                if (this.availableGoalsDirty || this.ctxGoals == null) {
++                    this.ctxGoals = this.availableGoals.toArray(new WrappedGoal[0]);
++                    this.availableGoalsDirty = false;
++                }
++                this.ctxState = 0;
++            }
++            return;
++        }
++        // Canvas end - Async target finding
+ 
+         for (WrappedGoal wrappedGoal : this.availableGoals) {
+             if (wrappedGoal.isRunning() && (goalContainsAnyFlags(wrappedGoal, this.goalTypes) || !wrappedGoal.canContinueToUse())) { // Paper - Perf: optimize goal types by removing streams
+@@ -94,8 +_,6 @@
+         }
+ 
+         this.lockedFlags.entrySet().removeIf(entry -> !entry.getValue().isRunning());
+-        profilerFiller.pop();
+-        profilerFiller.push("goalUpdate");
+ 
+         for (WrappedGoal wrappedGoalx : this.availableGoals) {
+             // Paper start
+@@ -115,21 +_,33 @@
+             }
+         }
+ 
+-        profilerFiller.pop();
+         this.tickRunningGoals(true);
+     }
+ 
+     public void tickRunningGoals(boolean tickAllRunning) {
+-        ProfilerFiller profilerFiller = Profiler.get();
+-        profilerFiller.push("goalTick");
+-
++        // Canvas start - Async target finding
++        if (io.canvasmc.canvas.Config.INSTANCE.entities.asyncTargetFinding.enabled) {
++            if (ctxState == -1) {
++                if (availableGoalsDirty || this.ctxGoals == null) {
++                    this.ctxGoals = this.availableGoals.toArray(new WrappedGoal[0]);
++                    availableGoalsDirty = false;
++                }
++                ctxState = tickAllRunning ? 2 : 3;
++            } else {
++                for (WrappedGoal wrappedGoal : java.util.Objects.requireNonNull(this.ctxGoals)) {
++                    if (wrappedGoal.isRunning() && (tickAllRunning || wrappedGoal.requiresUpdateEveryTick())) {
++                        wrappedGoal.tick();
++                    }
++                }
++            }
++            return;
++        }
++        // Canvas end - Async target finding
+         for (WrappedGoal wrappedGoal : this.availableGoals) {
+             if (wrappedGoal.isRunning() && (tickAllRunning || wrappedGoal.requiresUpdateEveryTick())) {
+                 wrappedGoal.tick();
+             }
+         }
+-
+-        profilerFiller.pop();
+     }
+ 
+     public Set<WrappedGoal> getAvailableGoals() {

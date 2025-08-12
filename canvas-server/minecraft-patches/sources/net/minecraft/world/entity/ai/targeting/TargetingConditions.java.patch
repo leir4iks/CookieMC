@@ -1,0 +1,22 @@
+--- a/net/minecraft/world/entity/ai/targeting/TargetingConditions.java
++++ b/net/minecraft/world/entity/ai/targeting/TargetingConditions.java
+@@ -79,9 +_,17 @@
+                 }
+ 
+                 if (this.range > 0.0) {
+-                    double d = this.testInvisible ? target.getVisibilityPercent(entity) : 1.0;
+-                    double max = Math.max(this.range * d, 2.0);
++                    // Canvas start
+                     double d1 = entity.distanceToSqr(target.getX(), target.getY(), target.getZ());
++                    double followRangeRaw = this.range;
++
++                    if (d1 > followRangeRaw * followRangeRaw) { // the actual follow range will always be this value or smaller, so if the distance is larger then it never will return true after getting invis
++                        return false;
++                    }
++
++                    double d = this.testInvisible ? target.getVisibilityPercent(entity) : 1.0;
++                    double max = Math.max(followRangeRaw * d, 2.0);
++                    // Canvas end
+                     if (d1 > max * max) {
+                         return false;
+                     }

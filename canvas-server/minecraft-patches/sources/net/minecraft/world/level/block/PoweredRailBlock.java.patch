@@ -1,0 +1,13 @@
+--- a/net/minecraft/world/level/block/PoweredRailBlock.java
++++ b/net/minecraft/world/level/block/PoweredRailBlock.java
+@@ -102,8 +_,8 @@
+     }
+ 
+     protected boolean isSameRailWithPower(Level level, BlockPos state, boolean searchForward, int recursionCount, RailShape shape) {
+-        BlockState blockState = level.getBlockState(state);
+-        if (!blockState.is(this)) {
++        BlockState blockState = !io.canvasmc.canvas.region.ServerRegions.isTickThreadFor(level, state, 16) ? null : level.getBlockState(state); // Canvas - block updates in unloaded chunks
++        if (blockState == null || !blockState.is(this)) { // Canvas - block updates in unloaded chunks
+             return false;
+         } else {
+             RailShape railShape = blockState.getValue(SHAPE);

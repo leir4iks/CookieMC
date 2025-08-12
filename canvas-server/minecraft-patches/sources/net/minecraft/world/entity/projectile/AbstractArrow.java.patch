@@ -1,0 +1,14 @@
+--- a/net/minecraft/world/entity/projectile/AbstractArrow.java
++++ b/net/minecraft/world/entity/projectile/AbstractArrow.java
+@@ -177,6 +_,11 @@
+ 
+     @Override
+     public void tick() {
++        // Canvas start - Threaded Regions
++        if (!io.canvasmc.canvas.region.ServerRegions.isTickThreadFor(this.level(), this.position(), this.getDeltaMovement(), 1)) {
++            return;
++        }
++        // Canvas end
+         boolean flag = !this.isNoPhysics();
+         Vec3 deltaMovement = this.getDeltaMovement();
+         BlockPos blockPos = this.blockPosition();

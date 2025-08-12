@@ -1,0 +1,15 @@
+--- a/net/minecraft/world/level/block/DetectorRailBlock.java
++++ b/net/minecraft/world/level/block/DetectorRailBlock.java
+@@ -128,8 +_,10 @@
+         RailState railState = new RailState(level, pos, state);
+ 
+         for (BlockPos blockPos : railState.getConnections()) {
+-            BlockState blockState = level.getBlockState(blockPos);
+-            level.neighborChanged(blockState, blockPos, blockState.getBlock(), null, false);
++            // Canvas start - block updates in unloaded chunks
++            BlockState blockState = !io.canvasmc.canvas.region.ServerRegions.isTickThreadFor(level, blockPos, 16) ? null : level.getBlockState(blockPos);
++            if (blockState != null) level.neighborChanged(blockState, blockPos, blockState.getBlock(), null, false);
++            // Canvas end
+         }
+     }
+ 

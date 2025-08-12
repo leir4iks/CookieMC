@@ -1,0 +1,16 @@
+--- a/src/main/java/ca/spottedleaf/moonrise/common/util/CoordinateUtils.java
++++ b/src/main/java/ca/spottedleaf/moonrise/common/util/CoordinateUtils.java
+@@ -16,11 +_,11 @@
+     }
+ 
+     public static long getChunkKey(final Entity entity) {
+-        return ((Mth.lfloor(entity.getZ()) >> 4) << 32) | ((Mth.lfloor(entity.getX()) >> 4) & 0xFFFFFFFFL);
++        return ((long) (entity.blockPosition.getZ() >> 4) << 32) | ((entity.blockPosition.getX() >> 4) & 0xFFFFFFFFL); // Canvas - optimize entity coord key
+     }
+ 
+     public static long getChunkKey(final ChunkPos pos) {
+-        return ((long)pos.z << 32) | (pos.x & 0xFFFFFFFFL);
++        return pos.longKey; // Canvas - use stored long key
+     }
+ 
+     public static long getChunkKey(final SectionPos pos) {

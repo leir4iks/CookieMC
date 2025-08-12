@@ -1,0 +1,28 @@
+--- a/net/minecraft/world/entity/ai/sensing/NearestItemSensor.java
++++ b/net/minecraft/world/entity/ai/sensing/NearestItemSensor.java
+@@ -15,6 +_,12 @@
+     private static final long XZ_RANGE = 32L;
+     private static final long Y_RANGE = 16L;
+     public static final int MAX_DISTANCE_TO_WANTED_ITEM = 32;
++    // Canvas start - small sort items
++    private final io.canvasmc.canvas.util.FastBitRadixSort itemSorter;
++    public NearestItemSensor() {
++        this.itemSorter = new io.canvasmc.canvas.util.FastBitRadixSort();
++    }
++    // Canvas end
+ 
+     @Override
+     public Set<MemoryModuleType<?>> requires() {
+@@ -25,10 +_,10 @@
+     protected void doTick(ServerLevel level, Mob entity) {
+         Brain<?> brain = entity.getBrain();
+         List<ItemEntity> entitiesOfClass = level.getEntitiesOfClass(ItemEntity.class, entity.getBoundingBox().inflate(32.0, 16.0, 32.0), itemEntity -> itemEntity.closerThan(entity, MAX_DISTANCE_TO_WANTED_ITEM) && entity.wantsToPickUp(level, itemEntity.getItem())); // Paper - Perf: Move predicate into getEntities
+-        entitiesOfClass.sort(Comparator.comparingDouble(entity::distanceToSqr));
++        ItemEntity[] sortedItems = this.itemSorter.sort(entitiesOfClass, entity, ItemEntity.class); // Canvas - small sort items
+         // Paper start - Perf: remove streams from hot code
+         ItemEntity nearest = null;
+-        for (final ItemEntity itemEntity : entitiesOfClass) {
++        for (final ItemEntity itemEntity : sortedItems) { // Canvas - small sort items
+             if (entity.hasLineOfSight(itemEntity)) { // Paper - Perf: Move predicate into getEntities
+                 nearest = itemEntity;
+                 break;

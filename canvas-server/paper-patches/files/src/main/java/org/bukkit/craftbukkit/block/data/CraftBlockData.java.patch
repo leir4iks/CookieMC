@@ -1,0 +1,40 @@
+--- a/src/main/java/org/bukkit/craftbukkit/block/data/CraftBlockData.java
++++ b/src/main/java/org/bukkit/craftbukkit/block/data/CraftBlockData.java
+@@ -244,12 +_,36 @@
+ 
+         if (!states.isEmpty()) {
+             stateString.append('[');
+-            stateString.append(states.entrySet().stream().map(StateHolder.PROPERTY_ENTRY_TO_STRING_FUNCTION).collect(Collectors.joining(",")));
++            // Canvas start
++            int i = 0;
++            for (Map.Entry<Property<?>, Comparable<?>> propertyEntry : states.entrySet()) {
++                if (propertyEntry == null) {
++                    stateString.append("<NULL>");
++                } else {
++                    Property<?> property = propertyEntry.getKey();
++                    Comparable<?> value = propertyEntry.getValue();
++
++                    stateString.append(property.getName()).append("=").append(getValueName(property, value));
++                }
++
++                if (i < states.size() - 1) {
++                    stateString.append(",");
++                }
++
++                i++;
++            }
++            // Canvas end
+             stateString.append(']');
+         }
+ 
+         return stateString.toString();
+     }
++    // Canvas start
++
++    private <T extends Comparable<T>> String getValueName(Property<T> property, Comparable<?> value) {
++        return property.getName((T) value);
++    }
++    // Canvas end
+ 
+     public Map<String, String> toStates(boolean hideUnspecified) {
+         return (hideUnspecified && this.parsedStates != null) ? CraftBlockData.toStates(this.parsedStates) : CraftBlockData.toStates(this.state.getValues());

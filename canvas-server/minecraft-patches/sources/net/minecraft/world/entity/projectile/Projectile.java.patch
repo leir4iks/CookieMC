@@ -1,0 +1,82 @@
+--- a/net/minecraft/world/entity/projectile/Projectile.java
++++ b/net/minecraft/world/entity/projectile/Projectile.java
+@@ -42,7 +_,7 @@
+     @Nullable
+     public UUID ownerUUID;
+     @Nullable
+-    public Entity cachedOwner;
++    public org.bukkit.craftbukkit.entity.CraftEntity cachedOwner; // Canvas - Threaded Regions - replace with CraftEntity
+     public boolean leftOwner = false;
+     public boolean hasBeenShot = false;
+     @Nullable
+@@ -56,7 +_,7 @@
+     public void setOwner(@Nullable Entity owner) {
+         if (owner != null) {
+             this.ownerUUID = owner.getUUID();
+-            this.cachedOwner = owner;
++            this.cachedOwner = owner.getBukkitEntity(); // Canvas - Threaded Regions
+         }
+         // Paper start - Refresh ProjectileSource for projectiles
+         else {
+@@ -73,22 +_,35 @@
+         if (fillCache) {
+             this.getOwner();
+         }
+-        if (this.cachedOwner != null && !this.cachedOwner.isRemoved() && this.projectileSource == null && this.cachedOwner.getBukkitEntity() instanceof org.bukkit.projectiles.ProjectileSource projSource) {
++        if (this.cachedOwner != null && !this.cachedOwner.getHandleRaw().isRemoved() && this.projectileSource == null && this.cachedOwner instanceof org.bukkit.projectiles.ProjectileSource projSource) { // Canvas - Threaded Regions
+             this.projectileSource = projSource;
+         }
+     }
+     // Paper end - Refresh ProjectileSource for projectiles
+ 
++    // Canvas start - Threaded Regions
+     @Nullable
+     @Override
+     public Entity getOwner() {
+-        if (this.cachedOwner != null && !this.cachedOwner.isRemoved()) {
++        Entity ret = this.getOwnerRaw();
++        return io.canvasmc.canvas.region.ServerRegions.isTickThreadFor(ret) && (ret == null || !ret.isRemoved()) ? ret : null;
++    }
++
++    @Nullable
++    public Entity getOwnerRaw() {
++    // Canvas end
++        if (this.cachedOwner != null && !this.cachedOwner.taskScheduler.isRetired()) {
+             this.refreshProjectileSource(false); // Paper - Refresh ProjectileSource for projectiles
+-            return this.cachedOwner;
++            return this.cachedOwner.getHandleRaw(); // Canvas - Threaded Regions
+         } else if (this.ownerUUID != null) {
+-            this.cachedOwner = this.findOwner(this.ownerUUID);
++            // Canvas start - Threaded Regions
++            Entity ret = this.findOwner(this.ownerUUID);
++            if (ret != null) {
++                this.cachedOwner = ret.getBukkitEntity();
++            }
+             this.refreshProjectileSource(false); // Paper - Refresh ProjectileSource for projectiles
+-            return this.cachedOwner;
++            return ret;
++            // Canvas end
+         } else {
+             return null;
+         }
+@@ -128,7 +_,10 @@
+     protected void setOwnerThroughUUID(@Nullable UUID uuid) {
+         if (!Objects.equals(this.ownerUUID, uuid)) {
+             this.ownerUUID = uuid;
+-            this.cachedOwner = uuid != null ? this.findOwner(uuid) : null;
++            // Canvas start - Threaded Regions
++            Entity cachedOwner = uuid != null ? this.findOwner(uuid) : null;
++            this.cachedOwner = cachedOwner != null ? cachedOwner.getBukkitEntity() : null;
++            // Canvas end
+         }
+     }
+ 
+@@ -466,7 +_,7 @@
+     @Override
+     public boolean mayInteract(ServerLevel level, BlockPos pos) {
+         Entity owner = this.getOwner();
+-        return owner instanceof Player ? owner.mayInteract(level, pos) : owner == null || level.getGameRules().getBoolean(GameRules.RULE_MOBGRIEFING, level.purpurConfig.projectilesMobGriefingOverride); // Purpur - Add mobGriefing override to everything affected
++        return owner instanceof Player && io.canvasmc.canvas.region.ServerRegions.isTickThreadFor(owner) ? owner.mayInteract(level, pos) : owner == null || level.getGameRules().getBoolean(GameRules.RULE_MOBGRIEFING, level.purpurConfig.projectilesMobGriefingOverride); // Purpur - Add mobGriefing override to everything affected // Canvas - Threaded Regions
+     }
+ 
+     public boolean mayBreak(ServerLevel level) {

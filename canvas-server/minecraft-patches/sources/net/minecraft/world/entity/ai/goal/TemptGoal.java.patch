@@ -1,0 +1,48 @@
+--- a/net/minecraft/world/entity/ai/goal/TemptGoal.java
++++ b/net/minecraft/world/entity/ai/goal/TemptGoal.java
+@@ -36,14 +_,43 @@
+         this.targetingConditions = TEMPT_TARGETING.copy().selector((entity, level) -> this.shouldFollow(entity));
+     }
+ 
++    // Canvas start - Async target finding
++    private boolean poll() {
++        if (!(this.mob.getGoalCtx().result() instanceof Player target)) return false;
++        var serverLevel = getServerLevel(this.mob);
++        if (!target.isAlive() || !this.targetingConditions.range(this.mob.getAttributeValue(Attributes.TEMPT_RANGE)).test(serverLevel, this.mob, target)) return false;
++        this.player = target;
++        return true;
++    }
++
++    private void getNearestPlayerAsync() {
++        final var mob = this.mob;
++        final var ctx = mob.getGoalCtx();
++        if (!ctx.state) return;
++        final var serverLevel = getServerLevel(mob);
++        final var conditions = this.targetingConditions
++            .range(mob.getAttributeValue(Attributes.TEMPT_RANGE))
++            .copy();
++        ctx.wake = () -> serverLevel.getNearestPlayer(conditions, mob);
++    }
++    // Canvas end - Async target finding
+     @Override
+     public boolean canUse() {
+         if (this.calmDown > 0) {
+             this.calmDown--;
+             return false;
+         } else {
+-            this.player = getServerLevel(this.mob)
+-                .getNearestPlayer(this.targetingConditions.range(this.mob.getAttributeValue(Attributes.TEMPT_RANGE)), this.mob);
++            // Canvas start - Async target finding
++            if (io.canvasmc.canvas.Config.INSTANCE.entities.asyncTargetFinding.searchEntity) {
++                if (!poll()) {
++                    getNearestPlayerAsync();
++                    return false;
++                }
++            } else {
++                this.player = getServerLevel(this.mob)
++                    .getNearestPlayer(this.targetingConditions.range(this.mob.getAttributeValue(Attributes.TEMPT_RANGE)), this.mob);
++            }
++            // Canvas end - Async target finding
+             // CraftBukkit start
+             if (this.player != null) {
+                 org.bukkit.event.entity.EntityTargetLivingEntityEvent event = org.bukkit.craftbukkit.event.CraftEventFactory.callEntityTargetLivingEvent(this.mob, this.player, org.bukkit.event.entity.EntityTargetEvent.TargetReason.TEMPT);

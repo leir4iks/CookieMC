@@ -1,0 +1,10 @@
+--- a/src/main/java/org/bukkit/plugin/SimplePluginManager.java
++++ b/src/main/java/org/bukkit/plugin/SimplePluginManager.java
+@@ -558,6 +_,7 @@
+ 
+             try {
+                 server.getScheduler().cancelTasks(plugin);
++                server.getAsyncScheduler().cancelTasks(plugin); // Canvas - cancel async scheduler - from Folia
+             } catch (Throwable ex) {
+                 handlePluginException("Error occurred (in the plugin loader) while cancelling tasks for "
+                         + plugin.getDescription().getFullName() + " (Is it up to date?)", ex, plugin); // Paper

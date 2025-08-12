@@ -1,0 +1,101 @@
+--- a/net/minecraft/world/entity/ai/goal/LookAtPlayerGoal.java
++++ b/net/minecraft/world/entity/ai/goal/LookAtPlayerGoal.java
+@@ -48,32 +_,79 @@
+ 
+     @Override
+     public boolean canUse() {
++        // Canvas start - Async target finding
++        if (poll()) {
++            return true;
++        }
+         if (this.mob.getRandom().nextFloat() >= this.probability) {
+             return false;
++        }
++        if (this.mob.getTarget() != null) {
++            this.lookAt = this.mob.getTarget();
++        }
++        if (io.canvasmc.canvas.Config.INSTANCE.entities.asyncTargetFinding.searchEntity) {
++            getLookAsync();
++            return false;
++        }
++        ServerLevel serverLevel = getServerLevel(this.mob);
++        if (this.lookAtType == Player.class) {
++            this.lookAt = serverLevel.getNearestPlayer(this.lookAtContext, this.mob, this.mob.getX(), this.mob.getEyeY(), this.mob.getZ());
+         } else {
+-            if (this.mob.getTarget() != null) {
+-                this.lookAt = this.mob.getTarget();
+-            }
+-
+-            ServerLevel serverLevel = getServerLevel(this.mob);
+-            if (this.lookAtType == Player.class) {
+-                this.lookAt = serverLevel.getNearestPlayer(this.lookAtContext, this.mob, this.mob.getX(), this.mob.getEyeY(), this.mob.getZ());
++            this.lookAt = serverLevel.getNearestEntity(
++                this.mob
++                    .level()
++                    .getEntitiesOfClass(this.lookAtType, this.mob.getBoundingBox().inflate(this.lookDistance, 3.0, this.lookDistance), livingEntity -> true),
++                this.lookAtContext,
++                this.mob,
++                this.mob.getX(),
++                this.mob.getEyeY(),
++                this.mob.getZ()
++            );
++        }
++
++        return this.lookAt != null;
++    }
++
++    protected boolean poll() {
++        if (!(this.mob.getGoalCtx().result() instanceof LivingEntity target)) return false;
++        if (this.mob.getTarget() != null) {
++            this.lookAt = this.mob.getTarget();
++            return true;
++        }
++        ServerLevel serverLevel = getServerLevel(this.mob);
++        if (!target.isAlive() || !this.lookAtContext.test(serverLevel, this.mob, target)) return false;
++        this.lookAt = target;
++        return true;
++    }
++
++    protected void getLookAsync() {
++        final var mob = this.mob;
++        final var ctx = mob.getGoalCtx();
++        if (!ctx.state) return;
++        final double x = mob.getX();
++        final double y = mob.getEyeY();
++        final double z = mob.getZ();
++        final var serverLevel = getServerLevel(mob);
++        final var bound = mob.getBoundingBox().inflate(this.lookDistance, 3.0, this.lookDistance);
++        final var lookAtContext = this.lookAtContext;
++        final var lookAtType = this.lookAtType;
++        ctx.wake = () -> {
++            if (lookAtType == Player.class) {
++                return serverLevel.getNearestPlayer(lookAtContext, mob, x, y, z);
+             } else {
+-                this.lookAt = serverLevel.getNearestEntity(
+-                    this.mob
+-                        .level()
+-                        .getEntitiesOfClass(this.lookAtType, this.mob.getBoundingBox().inflate(this.lookDistance, 3.0, this.lookDistance), livingEntity -> true),
+-                    this.lookAtContext,
+-                    this.mob,
+-                    this.mob.getX(),
+-                    this.mob.getEyeY(),
+-                    this.mob.getZ()
++                return serverLevel.getNearestEntity(
++                    serverLevel
++                        .getEntitiesOfClass(lookAtType, bound, livingEntity -> true),
++                    lookAtContext,
++                    mob,
++                    x,
++                    y,
++                    z
+                 );
+             }
+-
+-            return this.lookAt != null;
+-        }
++        };
+     }
++    // Canvas end - Async target finding
+ 
+     @Override
+     public boolean canContinueToUse() {

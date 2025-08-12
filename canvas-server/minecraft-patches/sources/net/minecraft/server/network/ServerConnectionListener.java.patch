@@ -1,0 +1,28 @@
+--- a/net/minecraft/server/network/ServerConnectionListener.java
++++ b/net/minecraft/server/network/ServerConnectionListener.java
+@@ -242,7 +_,7 @@
+             // Spigot start
+             this.addPending(); // Paper - prevent blocking on adding a new connection while the server is ticking
+             // This prevents players from 'gaming' the server, and strategically relogging to increase their position in the tick order
+-            if (org.spigotmc.SpigotConfig.playerShuffle > 0 && MinecraftServer.currentTick % org.spigotmc.SpigotConfig.playerShuffle == 0) {
++            if (org.spigotmc.SpigotConfig.playerShuffle > 0 && 0 % org.spigotmc.SpigotConfig.playerShuffle == 0) { // Canvas - Threaded Regions
+                 Collections.shuffle(this.connections);
+             }
+             // Spigot end
+@@ -250,6 +_,16 @@
+ 
+             while (iterator.hasNext()) {
+                 Connection connection = iterator.next();
++                // Canvas start - connection threading
++                if (connection.packetListener != null &&
++                    (connection.packetListener instanceof net.minecraft.server.network.ServerGamePacketListenerImpl)
++                ) {
++                    // on configuration phase, move to network router
++                    connection.getPlayer().serverLevel().networkRouter.connectToWorld(connection);
++                    iterator.remove();
++                    continue;
++                }
++                // Canvas end
+                 if (!connection.isConnecting()) {
+                     if (connection.isConnected()) {
+                         try {

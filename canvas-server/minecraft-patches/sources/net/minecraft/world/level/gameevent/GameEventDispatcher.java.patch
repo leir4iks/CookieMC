@@ -1,0 +1,10 @@
+--- a/net/minecraft/world/level/gameevent/GameEventDispatcher.java
++++ b/net/minecraft/world/level/gameevent/GameEventDispatcher.java
+@@ -38,6 +_,7 @@
+         int sectionPosCoord5 = SectionPos.blockToSectionCoord(blockPos.getZ() + notificationRadius);
+         List<GameEvent.ListenerInfo> list = new ArrayList<>();
+         GameEventListenerRegistry.ListenerVisitor listenerVisitor = (listener, pos1) -> {
++            if (!listener.listensToEvent(gameEvent.value(), context)) return; // Canvas - reduce work done by game event system - If they don't listen, ignore
+             if (listener.getDeliveryMode() == GameEventListener.DeliveryMode.BY_DISTANCE) {
+                 list.add(new GameEvent.ListenerInfo(gameEvent, pos, context, listener, pos1));
+             } else {

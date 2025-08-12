@@ -1,0 +1,64 @@
+--- a/net/minecraft/world/entity/ai/goal/target/DefendVillageTargetGoal.java
++++ b/net/minecraft/world/entity/ai/goal/target/DefendVillageTargetGoal.java
+@@ -24,13 +_,52 @@
+         this.setFlags(EnumSet.of(Goal.Flag.TARGET));
+     }
+ 
++    // Canvas start - Async target finding
++    protected boolean poll() {
++        if (!(this.mob.getGoalCtx().result() instanceof LivingEntity target)) return false;
++        ServerLevel serverLevel = getServerLevel(this.mob);
++        if (serverLevel == null || !target.isAlive() || !attackTargeting.test(serverLevel, golem, target)) return false;
++        this.potentialTarget = target;
++        return true;
++    }
++
++    private void findTargetAsync() {
++        final IronGolem mob = this.golem;
++        final var ctx = mob.getGoalCtx();
++        if (!ctx.state) return;
++        AABB bound = this.golem.getBoundingBox().inflate(10.0, 8.0, 10.0);
++        final ServerLevel serverLevel = getServerLevel(mob);
++        ctx.wake = () -> {
++            List<Villager> nearbyEntities = serverLevel.getNearbyEntities(Villager.class, attackTargeting, mob, bound);
++            List<Player> nearbyPlayers = serverLevel.getNearbyPlayers(attackTargeting, mob, bound);
++            for (Villager villager : nearbyEntities) {
++                for (Player player : nearbyPlayers) {
++                    int playerReputation = villager.getPlayerReputation(player);
++                    if (playerReputation <= -100) {
++                        return player;
++                    }
++                }
++            }
++            return null;
++        };
++    }
++    // Canvas end - Async target finding
++
+     @Override
+     public boolean canUse() {
++        // Canvas start - Async target finding
++        if (io.canvasmc.canvas.Config.INSTANCE.entities.asyncTargetFinding.searchEntity) {
++            if (!poll()) {
++                this.findTargetAsync();
++                return false;
++            }
++        } else {
+         AABB aabb = this.golem.getBoundingBox().inflate(10.0, 8.0, 10.0);
+         ServerLevel serverLevel = getServerLevel(this.golem);
+         List<? extends LivingEntity> nearbyEntities = serverLevel.getNearbyEntities(Villager.class, this.attackTargeting, this.golem, aabb);
+         List<Player> nearbyPlayers = serverLevel.getNearbyPlayers(this.attackTargeting, this.golem, aabb);
+ 
++        // Async target finding - diff
+         for (LivingEntity livingEntity : nearbyEntities) {
+             Villager villager = (Villager)livingEntity;
+ 
+@@ -41,6 +_,8 @@
+                 }
+             }
+         }
++        }
++        // Canvas end - Async target finding
+ 
+         return this.potentialTarget != null && !(this.potentialTarget instanceof Player player1 && (player1.isSpectator() || player1.isCreative()));
+     }

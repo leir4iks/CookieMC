@@ -1,0 +1,37 @@
+--- a/net/minecraft/world/level/block/entity/SculkCatalystBlockEntity.java
++++ b/net/minecraft/world/level/block/entity/SculkCatalystBlockEntity.java
+@@ -43,9 +_,9 @@
+     // Paper end - Fix NPE in SculkBloomEvent world access
+ 
+     public static void serverTick(Level level, BlockPos pos, BlockState state, SculkCatalystBlockEntity sculkCatalyst) {
+-        org.bukkit.craftbukkit.event.CraftEventFactory.sourceBlockOverride = sculkCatalyst.getBlockPos(); // CraftBukkit - SPIGOT-7068: Add source block override, not the most elegant way but better than passing down a BlockPosition up to five methods deep.
++        org.bukkit.craftbukkit.event.CraftEventFactory.sourceBlockOverride.set(sculkCatalyst.getBlockPos()); // CraftBukkit - SPIGOT-7068: Add source block override, not the most elegant way but better than passing down a BlockPosition up to five methods deep. // Canvas
+         sculkCatalyst.catalystListener.getSculkSpreader().updateCursors(level, pos, level.getRandom(), true);
+-        org.bukkit.craftbukkit.event.CraftEventFactory.sourceBlockOverride = null; // CraftBukkit
++        org.bukkit.craftbukkit.event.CraftEventFactory.sourceBlockOverride.remove(); // CraftBukkit // Canvas
+     }
+ 
+     @Override
+@@ -65,7 +_,7 @@
+         return this.catalystListener;
+     }
+ 
+-    public static class CatalystListener implements GameEventListener {
++    public class CatalystListener implements GameEventListener { // Canvas - reduce work done by game event system
+         public static final int PULSE_TICKS = 8;
+         final SculkSpreader sculkSpreader;
+         private final BlockState blockState;
+@@ -126,6 +_,13 @@
+             level.sendParticles(ParticleTypes.SCULK_SOUL, pos.getX() + 0.5, pos.getY() + 1.15, pos.getZ() + 0.5, 2, 0.2, 0.0, 0.2, 0.0);
+             level.playSound(null, pos, SoundEvents.SCULK_CATALYST_BLOOM, SoundSource.BLOCKS, 2.0F, 0.6F + random.nextFloat() * 0.4F);
+         }
++
++        // Canvas start - reduce work done by game event system
++        @Override
++        public boolean listensToEvent(GameEvent gameEvent, GameEvent.Context context) {
++            return !SculkCatalystBlockEntity.this.isRemoved() && gameEvent == GameEvent.ENTITY_DIE.value() && context.sourceEntity() instanceof LivingEntity;
++        }
++        // Canvas end - reduce work done by game event system
+ 
+         private void tryAwardItSpreadsAdvancement(Level level, LivingEntity entity) {
+             if (entity.getLastHurtByMob() instanceof ServerPlayer serverPlayer) {

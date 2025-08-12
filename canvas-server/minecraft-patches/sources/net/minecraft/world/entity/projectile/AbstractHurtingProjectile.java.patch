@@ -1,0 +1,14 @@
+--- a/net/minecraft/world/entity/projectile/AbstractHurtingProjectile.java
++++ b/net/minecraft/world/entity/projectile/AbstractHurtingProjectile.java
+@@ -80,6 +_,11 @@
+             this.setPos(location);
+             this.applyEffectsFromBlocks();
+             super.tick();
++            // Canvas start - Threaded Regions
++            if (!io.canvasmc.canvas.region.ServerRegions.isTickThreadFor(this.level(), this.position(), this.getDeltaMovement(), 1)) {
++                return;
++            }
++            // Canvas end
+             if (this.shouldBurn()) {
+                 this.igniteForSeconds(1.0F);
+             }

@@ -1,0 +1,40 @@
+--- a/net/minecraft/world/entity/ai/navigation/GroundPathNavigation.java
++++ b/net/minecraft/world/entity/ai/navigation/GroundPathNavigation.java
+@@ -24,9 +_,25 @@
+         super(mob, level);
+     }
+ 
++    // Canvas start - async path processing
++    protected static final io.canvasmc.canvas.entity.pathfinding.NodeEvaluatorGenerator nodeEvaluatorGenerator = (io.canvasmc.canvas.entity.pathfinding.NodeEvaluatorFeatures nodeEvaluatorFeatures) -> {
++        WalkNodeEvaluator nodeEvaluator = new WalkNodeEvaluator();
++        nodeEvaluator.setCanPassDoors(nodeEvaluatorFeatures.canPassDoors());
++        nodeEvaluator.setCanFloat(nodeEvaluatorFeatures.canFloat());
++        nodeEvaluator.setCanWalkOverFences(nodeEvaluatorFeatures.canWalkOverFences());
++        nodeEvaluator.setCanOpenDoors(nodeEvaluatorFeatures.canOpenDoors());
++        return nodeEvaluator;
++    };
++    // Canvas end
++
+     @Override
+     protected PathFinder createPathFinder(int maxVisitedNodes) {
+         this.nodeEvaluator = new WalkNodeEvaluator();
++        // Canvas start - async path processing
++        if (io.canvasmc.canvas.Config.INSTANCE.entities.pathfinding.enableThreadedPathfinding) {
++            return new PathFinder(this.nodeEvaluator, maxVisitedNodes, nodeEvaluatorGenerator);
++        }
++        // Canvas end
+         return new PathFinder(this.nodeEvaluator, maxVisitedNodes);
+     }
+ 
+@@ -42,6 +_,11 @@
+ 
+     @Override
+     public Path createPath(BlockPos pos, @javax.annotation.Nullable Entity entity, int accuracy) { // Paper - EntityPathfindEvent
++        // Canvas start - Threaded Regions
++        if (!io.canvasmc.canvas.region.ServerRegions.isTickThreadFor(this.level, pos)) {
++            return null;
++        }
++        // Canvas end
+         LevelChunk chunkNow = this.level.getChunkSource().getChunkNow(SectionPos.blockToSectionCoord(pos.getX()), SectionPos.blockToSectionCoord(pos.getZ()));
+         if (chunkNow == null) {
+             return null;

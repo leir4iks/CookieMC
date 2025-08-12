@@ -1,0 +1,22 @@
+--- a/net/minecraft/world/level/levelgen/BelowZeroRetrogen.java
++++ b/net/minecraft/world/level/levelgen/BelowZeroRetrogen.java
+@@ -21,6 +_,7 @@
+ import net.minecraft.world.level.chunk.ChunkAccess;
+ import net.minecraft.world.level.chunk.ProtoChunk;
+ import net.minecraft.world.level.chunk.status.ChunkStatus;
++import io.canvasmc.canvas.Config;
+ 
+ public final class BelowZeroRetrogen {
+     private static final BitSet EMPTY = new BitSet(0);
+@@ -74,6 +_,11 @@
+     }
+ 
+     public void applyBedrockMask(ProtoChunk chunk) {
++        // Canvas start
++        if (Config.INSTANCE.chunks.smoothBedrockLayer) {
++            return;
++        }
++        // Canvas end
+         LevelHeightAccessor heightAccessorForGeneration = chunk.getHeightAccessorForGeneration();
+         int minY = heightAccessorForGeneration.getMinY();
+         int maxY = heightAccessorForGeneration.getMaxY();

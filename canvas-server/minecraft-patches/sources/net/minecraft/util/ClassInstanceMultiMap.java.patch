@@ -1,0 +1,56 @@
+--- a/net/minecraft/util/ClassInstanceMultiMap.java
++++ b/net/minecraft/util/ClassInstanceMultiMap.java
+@@ -14,9 +_,9 @@
+ import net.minecraft.Util;
+ 
+ public class ClassInstanceMultiMap<T> extends AbstractCollection<T> {
+-    private final Map<Class<?>, List<T>> byClass = Maps.newHashMap();
++    private final Map<Class<?>, List<T>> byClass = new it.unimi.dsi.fastutil.objects.Reference2ReferenceOpenHashMap<>(2); // Canvas - optimized collection
+     private final Class<T> baseClass;
+-    private final List<T> allInstances = Lists.newArrayList();
++    private final List<T> allInstances = new it.unimi.dsi.fastutil.objects.ObjectArrayList<>(); // Canvas - optimized collection
+ 
+     public ClassInstanceMultiMap(Class<T> baseClass) {
+         this.baseClass = baseClass;
+@@ -56,18 +_,33 @@
+     }
+ 
+     public <S> Collection<S> find(Class<S> type) {
+-        if (!this.baseClass.isAssignableFrom(type)) {
+-            throw new IllegalArgumentException("Don't know how to search for " + type);
+-        } else {
+-            List<? extends T> list = this.byClass
+-                .computeIfAbsent(type, clazz -> this.allInstances.stream().filter(clazz::isInstance).collect(Util.toMutableList()));
+-            return (Collection<S>)Collections.unmodifiableCollection(list);
++    // Canvas start - optimize
++        Collection<T> collection = this.byClass.get(type);
++        if (collection == null) {
++            collection = this.createAllOfType(type);
+         }
+-    }
++        return (Collection<S>) collection;
++    }
++
++    private <S> Collection<T> createAllOfType(Class<S> type) {
++        return this.byClass.computeIfAbsent(
++            type,
++            clazz -> {
++                it.unimi.dsi.fastutil.objects.ObjectArrayList<T> ts = new it.unimi.dsi.fastutil.objects.ObjectArrayList<>(this.allInstances.size());
++                for (T _allElement : ((it.unimi.dsi.fastutil.objects.ObjectArrayList<T>) this.allInstances).elements()) {
++                    if (clazz.isInstance(_allElement)) {
++                        ts.add(_allElement);
++                    }
++                }
++                return ts;
++            }
++        );
++    }
++    // Canvas end
+ 
+     @Override
+     public Iterator<T> iterator() {
+-        return (Iterator<T>)(this.allInstances.isEmpty() ? Collections.emptyIterator() : Iterators.unmodifiableIterator(this.allInstances.iterator()));
++        return this.allInstances.isEmpty() ? Collections.emptyIterator() : Iterators.unmodifiableIterator(this.allInstances.iterator());
+     }
+ 
+     public List<T> getAllInstances() {

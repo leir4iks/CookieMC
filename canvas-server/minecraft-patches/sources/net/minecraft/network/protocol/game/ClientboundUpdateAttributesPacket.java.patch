@@ -1,0 +1,10 @@
+--- a/net/minecraft/network/protocol/game/ClientboundUpdateAttributesPacket.java
++++ b/net/minecraft/network/protocol/game/ClientboundUpdateAttributesPacket.java
+@@ -32,6 +_,7 @@
+         this.attributes = Lists.newArrayList();
+ 
+         for (AttributeInstance attributeInstance : attributes) {
++            if (attributeInstance == null) continue; // Canvas - threaded tracker
+             this.attributes
+                 .add(
+                     new ClientboundUpdateAttributesPacket.AttributeSnapshot(

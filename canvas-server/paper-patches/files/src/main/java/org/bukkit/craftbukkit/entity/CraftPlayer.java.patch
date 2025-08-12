@@ -1,0 +1,80 @@
+--- a/src/main/java/org/bukkit/craftbukkit/entity/CraftPlayer.java
++++ b/src/main/java/org/bukkit/craftbukkit/entity/CraftPlayer.java
+@@ -11,6 +_,7 @@
+ import io.papermc.paper.configuration.GlobalConfiguration;
+ import io.papermc.paper.entity.LookAnchor;
+ import io.papermc.paper.entity.PaperPlayerGiveResult;
++import it.unimi.dsi.fastutil.shorts.Short2ObjectMaps;
+ import io.papermc.paper.entity.PlayerGiveResult;
+ import io.papermc.paper.math.Position;
+ import io.papermc.paper.util.MCUtil;
+@@ -207,6 +_,7 @@
+ import org.bukkit.scoreboard.Scoreboard;
+ import org.jspecify.annotations.NonNull;
+ import org.jspecify.annotations.Nullable;
++import it.unimi.dsi.fastutil.shorts.ShortSets;
+ 
+ @DelegateDeserialization(CraftOfflinePlayer.class)
+ public class CraftPlayer extends CraftHumanEntity implements Player {
+@@ -216,7 +_,7 @@
+     private boolean hasPlayedBefore = false;
+     private final ConversationTracker conversationTracker = new ConversationTracker();
+     private final Set<String> channels = new HashSet<String>();
+-    private final Map<UUID, Set<WeakReference<Plugin>>> invertedVisibilityEntities = new HashMap<>();
++    private final Map<UUID, Set<WeakReference<Plugin>>> invertedVisibilityEntities = new it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap<>(); // Canvas - fastutil
+     private final Set<UUID> unlistedEntities = new HashSet<>(); // Paper - Add Listing API for Player
+     private static final WeakHashMap<Plugin, WeakReference<Plugin>> pluginWeakReferences = new WeakHashMap<>();
+     private int hash = 0;
+@@ -1020,7 +_,7 @@
+             SectionPos sectionPos = entry.getKey();
+             it.unimi.dsi.fastutil.shorts.Short2ObjectMap<net.minecraft.world.level.block.state.BlockState> blockData = entry.getValue();
+ 
+-            net.minecraft.network.protocol.game.ClientboundSectionBlocksUpdatePacket packet = new net.minecraft.network.protocol.game.ClientboundSectionBlocksUpdatePacket(sectionPos, blockData);
++            net.minecraft.network.protocol.game.ClientboundSectionBlocksUpdatePacket packet = new net.minecraft.network.protocol.game.ClientboundSectionBlocksUpdatePacket(sectionPos, Short2ObjectMaps.synchronize(blockData)); // Canvas
+             this.getHandle().connection.send(packet);
+         }
+     }
+@@ -1059,7 +_,7 @@
+     private record ChunkSectionChanges(ShortSet positions, List<net.minecraft.world.level.block.state.BlockState> blockData) {
+ 
+         public ChunkSectionChanges() {
+-            this(new ShortArraySet(), new ArrayList<>());
++            this(ShortSets.synchronize(new ShortArraySet()), new ArrayList<>()); // Canvas
+         }
+     }
+ 
+@@ -2082,7 +_,7 @@
+     private void unregisterEntity(Entity other) {
+         // Paper end
+         ChunkMap tracker = ((ServerLevel) this.getHandle().level()).getChunkSource().chunkMap;
+-        ChunkMap.TrackedEntity entry = tracker.entityMap.get(other.getId());
++        ChunkMap.TrackedEntity entry = other.moonrise$getTrackedEntity(); // Canvas - Threaded Regions
+         if (entry != null) {
+             entry.removePlayer(this.getHandle());
+         }
+@@ -2179,7 +_,7 @@
+             if (original != null) otherPlayer.setUUID(original); // Paper - uuid override
+         }
+ 
+-        ChunkMap.TrackedEntity entry = tracker.entityMap.get(other.getId());
++        ChunkMap.TrackedEntity entry = other.moonrise$getTrackedEntity(); // Canvas - Threaded Regions
+         if (entry != null && !entry.seenBy.contains(this.getHandle().connection)) {
+             entry.updatePlayer(this.getHandle());
+         }
+@@ -2269,8 +_,14 @@
+ 
+     @Override
+     public boolean canSee(org.bukkit.entity.Entity entity) {
+-        return this.equals(entity) || entity.isVisibleByDefault() ^ this.invertedVisibilityEntities.containsKey(entity.getUniqueId()); // SPIGOT-7312: Can always see self
+-    }
++        return this.equals(entity) || entity.isVisibleByDefault() ^ (!invertedVisibilityEntities.isEmpty() && this.invertedVisibilityEntities.containsKey(entity.getUniqueId())); // SPIGOT-7312: Can always see self // Canvas - optimize canSee checks
++    }
++    // Canvas start - optimize canSee checks
++
++    public boolean canSeeChunkMapUpdatePlayer(org.bukkit.entity.Entity entity) {
++        return entity.isVisibleByDefault() ^ (!invertedVisibilityEntities.isEmpty() && this.invertedVisibilityEntities.containsKey(entity.getUniqueId())); // SPIGOT-7312: Can always see self // SparklyPaper - optimize canSee checks
++    }
++    // Canvas end
+ 
+     public boolean canSeePlayer(UUID uuid) {
+         org.bukkit.entity.Entity entity = this.getServer().getPlayer(uuid);

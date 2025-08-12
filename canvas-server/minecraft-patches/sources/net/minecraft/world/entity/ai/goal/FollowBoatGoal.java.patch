@@ -1,0 +1,59 @@
+--- a/net/minecraft/world/entity/ai/goal/FollowBoatGoal.java
++++ b/net/minecraft/world/entity/ai/goal/FollowBoatGoal.java
+@@ -23,8 +_,47 @@
+         this.mob = mob;
+     }
+ 
++    // Canvas start - Async target finding
++    private boolean poll() {
++        if (!(this.mob.getGoalCtx().result() instanceof Player target)) return false;
++        var serverLevel = getServerLevel(this.mob);
++        return serverLevel != null && target.isAlive() && !target.isSpectator() && (Mth.abs(target.xxa) > 0.0F || Mth.abs(target.zza) > 0.0F);
++    }
++
++    private void findTargetAsync() {
++        final PathfinderMob mob = this.mob;
++        final var ctx = mob.getGoalCtx();
++        if (!ctx.state) return;
++        final var bound = mob.getBoundingBox().inflate(5.0);
++        final var serverLevel = getServerLevel(mob);
++        ctx.wake = () -> {
++            List<AbstractBoat> entitiesOfClass = serverLevel.getEntitiesOfClass(AbstractBoat.class, bound);
++            for (AbstractBoat abstractBoat : entitiesOfClass) {
++                Entity controllingPassenger = abstractBoat.getControllingPassenger();
++                if (controllingPassenger instanceof Player player
++                    && (Mth.abs(player.xxa) > 0.0F || Mth.abs(player.zza) > 0.0F)) {
++                    return player;
++
++                }
++            }
++            return null;
++        };
++    }
++    // Canvas end - Async target finding
+     @Override
+     public boolean canUse() {
++        // Canvas start - Async target finding
++        if (poll()) {
++            return true;
++        }
++        if (this.following != null && (Mth.abs(this.following.xxa) > 0.0F || Mth.abs(this.following.zza) > 0.0F)) {
++            return true;
++        }
++        if (io.canvasmc.canvas.Config.INSTANCE.entities.asyncTargetFinding.searchEntity) {
++            findTargetAsync();
++            return false;
++        }
++        // Canvas end - Async target finding
+         List<AbstractBoat> entitiesOfClass = this.mob.level().getEntitiesOfClass(AbstractBoat.class, this.mob.getBoundingBox().inflate(5.0));
+         boolean flag = false;
+ 
+@@ -36,7 +_,7 @@
+             }
+         }
+ 
+-        return this.following != null && (Mth.abs(this.following.xxa) > 0.0F || Mth.abs(this.following.zza) > 0.0F) || flag;
++        return flag; // Canvas - Async target finding - move above
+     }
+ 
+     @Override

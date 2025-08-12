@@ -1,0 +1,31 @@
+--- a/net/minecraft/world/entity/projectile/FishingHook.java
++++ b/net/minecraft/world/entity/projectile/FishingHook.java
+@@ -48,7 +_,7 @@
+ 
+ public class FishingHook extends Projectile {
+     private static final Logger LOGGER = LogUtils.getLogger();
+-    private final RandomSource syncronizedRandom = RandomSource.create();
++    private final RandomSource syncronizedRandom; // = RandomSource.create(); // Canvas - reduce RandomSource instances
+     private boolean biting;
+     public int outOfWaterTime;
+     private static final int MAX_OUT_OF_WATER_TIME = 10;
+@@ -86,6 +_,7 @@
+         this.minWaitTime = level.paperConfig().fishingTimeRange.minimum;
+         this.maxWaitTime = level.paperConfig().fishingTimeRange.maximum;
+         // Paper end - Configurable fishing time ranges
++        this.syncronizedRandom = level.random; // Canvas - reduce RandomSource instances
+     }
+ 
+     public FishingHook(EntityType<? extends FishingHook> entityType, Level level) {
+@@ -259,6 +_,11 @@
+     }
+ 
+     private boolean shouldStopFishing(Player player) {
++        // Canvas start - Threaded Regions
++        if (!io.canvasmc.canvas.region.ServerRegions.isTickThreadFor(player)) {
++            return true;
++        }
++        // Canvas end
+         ItemStack mainHandItem = player.getMainHandItem();
+         ItemStack offhandItem = player.getOffhandItem();
+         boolean isFishingRod = mainHandItem.is(Items.FISHING_ROD);

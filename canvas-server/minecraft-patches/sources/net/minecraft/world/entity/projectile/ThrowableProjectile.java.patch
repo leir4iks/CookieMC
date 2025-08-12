@@ -1,0 +1,14 @@
+--- a/net/minecraft/world/entity/projectile/ThrowableProjectile.java
++++ b/net/minecraft/world/entity/projectile/ThrowableProjectile.java
+@@ -44,6 +_,11 @@
+ 
+     @Override
+     public void tick() {
++        // Canvas start - Threaded Regions
++        if (!io.canvasmc.canvas.region.ServerRegions.isTickThreadFor(this.level(), this.position(), this.getDeltaMovement(), 1)) {
++            return;
++        }
++        // Canvas end
+         this.handleFirstTickBubbleColumn();
+         this.applyGravity();
+         this.applyInertia();

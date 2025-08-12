@@ -1,0 +1,35 @@
+--- a/net/minecraft/world/level/BlockGetter.java
++++ b/net/minecraft/world/level/BlockGetter.java
+@@ -215,18 +_,30 @@
+     static void forEachBlockIntersectedBetween(Vec3 from, Vec3 to, AABB boundingBox, BlockGetter.BlockStepVisitor stepVisitor) {
+         Vec3 vec3 = to.subtract(from);
+         if (!(vec3.lengthSqr() < Mth.square(0.99999F))) {
++            // Canvas start - optimize
++            final boolean xZero = vec3.x() == 0.0;
++            final boolean yZero = vec3.y() == 0.0;
++            final boolean zZero = vec3.z() == 0.0;
++            if (xZero && yZero || yZero && zZero || xZero && zZero) {
++                int blockIndex = 0;
++                for (BlockPos blockPos : io.canvasmc.canvas.util.BlockPosIterator.traverseArea(vec3, boundingBox)) {
++                    stepVisitor.visit(blockPos, blockIndex++);
++                }
++                return;
++            }
++            // Canvas end
+             LongSet set = new LongOpenHashSet();
+             Vec3 minPosition = boundingBox.getMinPosition();
+             Vec3 vec31 = minPosition.subtract(vec3);
+             int i = addCollisionsAlongTravel(set, vec31, minPosition, boundingBox, stepVisitor);
+ 
+-            for (BlockPos blockPos1 : BlockPos.betweenClosed(boundingBox)) {
++            for (BlockPos blockPos1 : io.canvasmc.canvas.util.BlockPosIterator.iterable(boundingBox)) { // Canvas - optimize
+                 if (!set.contains(blockPos1.asLong())) {
+                     stepVisitor.visit(blockPos1, i + 1);
+                 }
+             }
+         } else {
+-            for (BlockPos blockPos : BlockPos.betweenClosed(boundingBox)) {
++            for (BlockPos blockPos : io.canvasmc.canvas.util.BlockPosIterator.iterable(boundingBox)) { // Canvas - optimize
+                 stepVisitor.visit(blockPos, 0);
+             }
+         }

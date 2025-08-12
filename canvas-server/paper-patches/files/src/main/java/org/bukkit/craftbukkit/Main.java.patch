@@ -1,0 +1,29 @@
+--- a/src/main/java/org/bukkit/craftbukkit/Main.java
++++ b/src/main/java/org/bukkit/craftbukkit/Main.java
+@@ -24,7 +_,7 @@
+     }
+     // Paper end - Reset loggers after shutdown
+ 
+-    public static void main(String[] args) {
++    public static OptionParser main(String[] args) { // Canvas - rewrite bootstrap
+         // Todo: Installation script
+         if (System.getProperty("jdk.nio.maxCachedBufferSize") == null) System.setProperty("jdk.nio.maxCachedBufferSize", "262144"); // Paper - cap per-thread NIO cache size; https://www.evanjones.ca/java-bytebuffer-leak.html
+         OptionParser parser = new OptionParser() {
+@@ -181,6 +_,7 @@
+             }
+         };
+ 
++        /* // Canvas start - rewrite bootstrap
+         OptionSet options = null;
+ 
+         try {
+@@ -253,6 +_,9 @@
+                 t.printStackTrace();
+             }
+         }
++         */
++        return parser;
++        // Canvas end
+     }
+ 
+     private static List<String> asList(String... params) {

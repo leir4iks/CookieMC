@@ -1,0 +1,21 @@
+--- a/net/minecraft/world/entity/animal/Panda.java
++++ b/net/minecraft/world/entity/animal/Panda.java
+@@ -988,9 +_,18 @@
+ 
+         @Override
+         public boolean canUse() {
++            // Canvas start - Async target finding
++            if (poll()) {
++                return true;
++            }
+             if (this.mob.getRandom().nextFloat() >= this.probability) {
+                 return false;
+             } else {
++                if (io.canvasmc.canvas.Config.INSTANCE.entities.asyncTargetFinding.searchEntity) {
++                    getLookAsync();
++                    return false;
++                }
++                // Canvas end - Async target finding
+                 if (this.lookAt == null) {
+                     ServerLevel serverLevel = getServerLevel(this.mob);
+                     if (this.lookAtType == Player.class) {

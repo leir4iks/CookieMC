@@ -1,0 +1,19 @@
+--- a/net/minecraft/util/debugchart/DebugSampleSubscriptionTracker.java
++++ b/net/minecraft/util/debugchart/DebugSampleSubscriptionTracker.java
+@@ -4,6 +_,7 @@
+ import java.util.LinkedList;
+ import java.util.Map;
+ import java.util.Queue;
++import com.google.common.collect.Queues;
+ import net.minecraft.Util;
+ import net.minecraft.network.protocol.game.ClientboundDebugSamplePacket;
+ import net.minecraft.server.level.ServerPlayer;
+@@ -14,7 +_,7 @@
+     public static final int STOP_SENDING_AFTER_MS = 10000;
+     private final PlayerList playerList;
+     private final Map<RemoteDebugSampleType, Map<ServerPlayer, DebugSampleSubscriptionTracker.SubscriptionStartedAt>> subscriptions;
+-    private final Queue<DebugSampleSubscriptionTracker.SubscriptionRequest> subscriptionRequestQueue = new LinkedList<>();
++    private final Queue<DebugSampleSubscriptionTracker.SubscriptionRequest> subscriptionRequestQueue = Queues.synchronizedQueue(new LinkedList<>()); // Canvas - synchronized
+ 
+     public DebugSampleSubscriptionTracker(PlayerList playerList) {
+         this.playerList = playerList;

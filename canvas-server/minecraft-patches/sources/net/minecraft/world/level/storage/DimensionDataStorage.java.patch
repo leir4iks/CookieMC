@@ -1,0 +1,69 @@
+--- a/net/minecraft/world/level/storage/DimensionDataStorage.java
++++ b/net/minecraft/world/level/storage/DimensionDataStorage.java
+@@ -18,6 +_,7 @@
+ import java.util.Optional;
+ import java.util.Map.Entry;
+ import java.util.concurrent.CompletableFuture;
++import java.util.concurrent.ConcurrentHashMap;
+ import javax.annotation.Nullable;
+ import net.minecraft.SharedConstants;
+ import net.minecraft.Util;
+@@ -39,7 +_,7 @@
+ public class DimensionDataStorage implements AutoCloseable {
+     private static final Logger LOGGER = LogUtils.getLogger();
+     private final SavedData.Context context;
+-    public final Map<SavedDataType<?>, Optional<SavedData>> cache = new HashMap<>();
++    public final Map<SavedDataType<?>, Optional<SavedData>> cache = new ConcurrentHashMap<>(); // Canvas - concurrent
+     private final DataFixer fixerUpper;
+     private final HolderLookup.Provider registries;
+     private final Path dataFolder;
+@@ -57,6 +_,7 @@
+     }
+ 
+     public <T extends SavedData> T computeIfAbsent(SavedDataType<T> type) {
++        synchronized (this.cache) { // Canvas - make map data thread-safe
+         T savedData = this.get(type);
+         if (savedData != null) {
+             return savedData;
+@@ -65,10 +_,12 @@
+             this.set(type, savedData1);
+             return savedData1;
+         }
++        } // Canvas - make map data thread-safe
+     }
+ 
+     @Nullable
+     public <T extends SavedData> T get(SavedDataType<T> type) {
++        synchronized (this.cache) { // Canvas - make map data thread-safe
+         Optional<SavedData> optional = this.cache.get(type);
+         if (optional == null) {
+             optional = Optional.ofNullable(this.readSavedData(type));
+@@ -76,6 +_,7 @@
+         }
+ 
+         return (T)optional.orElse(null);
++        } // Canvas - make map data thread-safe
+     }
+ 
+     @Nullable
+@@ -99,8 +_,10 @@
+     }
+ 
+     public <T extends SavedData> void set(SavedDataType<T> type, T value) {
++        synchronized (this.cache) { // Canvas - make map data thread-safe
+         this.cache.put(type, Optional.of(value));
+         value.setDirty();
++        } // Canvas - make map data thread-safe
+     }
+ 
+     public CompoundTag readTagFromDisk(String filename, DataFixTypes dataFixType, int version) throws IOException {
+@@ -194,7 +_,9 @@
+     private <T extends SavedData> CompoundTag encodeUnchecked(SavedDataType<T> type, SavedData data, RegistryOps<Tag> ops) {
+         Codec<T> codec = type.codec().apply(this.context);
+         CompoundTag compoundTag = new CompoundTag();
++        synchronized (data) { // Canvas - make map data thread-safe
+         compoundTag.put("data", codec.encodeStart(ops, (T)data).getOrThrow());
++        } // Canvas - make map data thread-safe
+         NbtUtils.addCurrentDataVersion(compoundTag);
+         return compoundTag;
+     }

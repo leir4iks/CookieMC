@@ -1,0 +1,19 @@
+--- a/net/minecraft/world/inventory/StonecutterMenu.java
++++ b/net/minecraft/world/inventory/StonecutterMenu.java
+@@ -238,6 +_,7 @@
+             ItemStack item = slot.getItem();
+             Item item1 = item.getItem();
+             itemStack = item.copy();
++            ItemStack itemStack2 = itemStack.copy(); // Canvas - MC-65198
+             if (index == 1) {
+                 item1.onCraftedBy(item, player);
+                 if (!this.moveItemStackTo(item, 2, 38, true)) {
+@@ -270,7 +_,7 @@
+                 return ItemStack.EMPTY;
+             }
+ 
+-            slot.onTake(player, item);
++            slot.onTake(player, itemStack2); // Canvas - MC-65198
+             if (index == 1) {
+                 player.drop(item, false);
+             }

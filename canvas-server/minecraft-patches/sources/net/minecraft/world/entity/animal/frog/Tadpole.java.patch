@@ -1,0 +1,30 @@
+--- a/net/minecraft/world/entity/animal/frog/Tadpole.java
++++ b/net/minecraft/world/entity/animal/frog/Tadpole.java
+@@ -12,8 +_,6 @@
+ import net.minecraft.sounds.SoundEvent;
+ import net.minecraft.sounds.SoundEvents;
+ import net.minecraft.tags.ItemTags;
+-import net.minecraft.util.profiling.Profiler;
+-import net.minecraft.util.profiling.ProfilerFiller;
+ import net.minecraft.world.InteractionHand;
+ import net.minecraft.world.InteractionResult;
+ import net.minecraft.world.damagesource.DamageSource;
+@@ -133,16 +_,12 @@
+         return SoundEvents.TADPOLE_FLOP;
+     }
+ 
++    private int behaviorTick = 0; // Canvas
+     @Override
+     protected void customServerAiStep(ServerLevel level) {
+-        ProfilerFiller profilerFiller = Profiler.get();
+-        profilerFiller.push("tadpoleBrain");
+-        //if ((getRider() == null || !this.isControllable()) && this.behaviorTick++ % this.activatedPriority == 0) // Pufferfish // Purpur - only use brain if no rider
++        if ((getRider() == null || !this.isControllable()) && this.behaviorTick++ % this.activatedPriority == 0) // Pufferfish // Purpur - only use brain if no rider // Canvas - DAB
+         this.getBrain().tick(level, this);
+-        profilerFiller.pop();
+-        profilerFiller.push("tadpoleActivityUpdate");
+         TadpoleAi.updateActivity(this);
+-        profilerFiller.pop();
+         super.customServerAiStep(level);
+     }
+ 

@@ -1,0 +1,19 @@
+--- a/net/minecraft/world/inventory/ItemCombinerMenu.java
++++ b/net/minecraft/world/inventory/ItemCombinerMenu.java
+@@ -120,6 +_,7 @@
+         if (slot != null && slot.hasItem()) {
+             ItemStack item = slot.getItem();
+             itemStack = item.copy();
++            ItemStack itemStack2 = itemStack.copy(); // Canvas - MC-65198
+             int inventorySlotStart = this.getInventorySlotStart();
+             int useRowEnd = this.getUseRowEnd();
+             if (index == this.getResultSlot()) {
+@@ -157,7 +_,7 @@
+             }
+ 
+             this.activeQuickItem = itemStack; // Purpur - Anvil API
+-            slot.onTake(player, item);
++            slot.onTake(player, itemStack2); // Canvas - MC-65198
+             this.activeQuickItem = null; // Purpur - Anvil API
+         }
+ 

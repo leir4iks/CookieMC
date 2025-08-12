@@ -1,0 +1,30 @@
+--- a/net/minecraft/world/level/pathfinder/WalkNodeEvaluator.java
++++ b/net/minecraft/world/level/pathfinder/WalkNodeEvaluator.java
+@@ -479,6 +_,15 @@
+         return pathType;
+     }
+ 
++    // Canvas start - cache path type
++    public static PathType canvasPathType(BlockGetter level, BlockPos blockPos) {
++        BlockState blockState = level.getBlockStateIfLoaded(blockPos);
++        if (blockState == null) {
++            return PathType.BLOCKED;
++        }
++        return blockState.pathType;
++    }
++    // Canvas end
+     protected static PathType getPathTypeFromState(BlockGetter level, BlockPos pos) {
+         // Paper start - Do not load chunks during pathfinding
+         BlockState blockState = level.getBlockStateIfLoaded(pos);
+@@ -486,6 +_,11 @@
+             return PathType.BLOCKED;
+         }
+         // Paper end
++    // Canvas start - cache path type
++        return getPathTypeFromState(blockState);
++    }
++    public static PathType getPathTypeFromState(BlockState blockState) {
++    // Canvas end
+         Block block = blockState.getBlock();
+         if (blockState.isAir()) {
+             return PathType.OPEN;

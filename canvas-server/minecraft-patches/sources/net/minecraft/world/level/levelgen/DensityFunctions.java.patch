@@ -1,0 +1,297 @@
+--- a/net/minecraft/world/level/levelgen/DensityFunctions.java
++++ b/net/minecraft/world/level/levelgen/DensityFunctions.java
+@@ -5,11 +_,18 @@
+ import com.mojang.serialization.Codec;
+ import com.mojang.serialization.MapCodec;
+ import com.mojang.serialization.codecs.RecordCodecBuilder;
++import io.canvasmc.canvas.Config;
++import io.canvasmc.canvas.util.Bindings;
+ import it.unimi.dsi.fastutil.doubles.Double2DoubleFunction;
++import java.lang.foreign.Arena;
++import java.lang.foreign.MemorySegment;
++import java.lang.invoke.VarHandle;
+ import java.util.Arrays;
++import java.util.Objects;
+ import java.util.Optional;
+ import java.util.function.BiFunction;
+ import java.util.function.Function;
++import java.util.function.Supplier;
+ import net.minecraft.core.Holder;
+ import net.minecraft.core.Registry;
+ import net.minecraft.core.registries.BuiltInRegistries;
+@@ -501,6 +_,11 @@
+     }
+ 
+     protected static final class EndIslandDensityFunction implements DensityFunction.SimpleFunction {
++        // Canvas start
++        private final Arena c2me$arena = Arena.ofAuto();
++        private MemorySegment c2me$samplerData = null;
++        private long c2me$samplerDataPtr;
++        // Canvas end
+         public static final KeyDispatchDataCodec<DensityFunctions.EndIslandDensityFunction> CODEC = KeyDispatchDataCodec.of(
+             MapCodec.unit(new DensityFunctions.EndIslandDensityFunction(0L))
+         );
+@@ -521,6 +_,16 @@
+             RandomSource randomSource = new LegacyRandomSource(seed);
+             randomSource.consumeCount(17292);
+             this.islandNoise = new SimplexNoise(randomSource);
++            // Canvas start
++            if (Config.INSTANCE.chunks.nativeAcceleration.nativeAccelerationEnabled) {
++                int[] permutation = (this.islandNoise).p;
++                MemorySegment segment = this.c2me$arena.allocate(permutation.length * 4L, 64);
++                MemorySegment.copy(MemorySegment.ofArray(permutation), 0L, segment, 0L, permutation.length * 4L);
++                VarHandle.fullFence();
++                this.c2me$samplerData = segment;
++                this.c2me$samplerDataPtr = segment.address();
++            }
++            // Canvas end
+         }
+ 
+         private static float getHeightValue(SimplexNoise noise, int x, int z) {
+@@ -567,7 +_,13 @@
+ 
+         @Override
+         public double compute(DensityFunction.FunctionContext context) {
++            // Canvas start
++            if (Config.INSTANCE.chunks.nativeAcceleration.nativeAccelerationEnabled && this.c2me$samplerDataPtr != 0L) {
++                return ((double) Bindings.c2me_natives_end_islands_sample(this.c2me$samplerDataPtr, context.blockX() / 8, context.blockZ() / 8) - 8.0) / 128.0;
++            } else {
+             return (getHeightValue(this.islandNoise, context.blockX() / 8, context.blockZ() / 8) - 8.0) / 128.0;
++            }
++            // Canvas end
+         }
+ 
+         @Override
+@@ -815,8 +_,40 @@
+         }
+ 
+         @Override
+-        public void fillArray(double[] array, DensityFunction.ContextProvider contextProvider) {
+-            contextProvider.fillAllDirectly(array, this);
++        // Canvas start
++        public void fillArray(double[] densities, DensityFunction.ContextProvider applier) {
++            if (!Config.INSTANCE.chunks.nativeAcceleration.nativeAccelerationEnabled) {
++                applier.fillAllDirectly(densities, this);
++                return;
++            }
++            NormalNoise noise = this.noise.noise();
++            if (noise == null) {
++                Arrays.fill(densities, 0.0);
++                return;
++            }
++            long ptr = noise.c2me$getPointer();
++            if (ptr == 0L) {
++                applier.fillAllDirectly(densities, this);
++                return;
++            }
++            double[] x = new double[densities.length];
++            double[] y = new double[densities.length];
++            double[] z = new double[densities.length];
++            for (int i = 0; i < densities.length; i++) {
++                FunctionContext pos = applier.forIndex(i);
++                x[i] = pos.blockX() * this.xzScale();
++                y[i] = pos.blockY() * this.yScale();
++                z[i] = pos.blockZ() * this.xzScale();
++            }
++            Bindings.c2me_natives_noise_perlin_double_batch(
++                ptr,
++                MemorySegment.ofArray(densities),
++                MemorySegment.ofArray(x),
++                MemorySegment.ofArray(y),
++                MemorySegment.ofArray(z),
++                densities.length
++            );
++        // Canvas end
+         }
+ 
+         @Override
+@@ -938,6 +_,46 @@
+         public KeyDispatchDataCodec<? extends DensityFunction> codec() {
+             return CODEC;
+         }
++        // Canvas start
++
++        @Override
++        public void fillArray(final double[] densities, final ContextProvider applier) {
++            if (!Config.INSTANCE.chunks.nativeAcceleration.nativeAccelerationEnabled) {
++                applier.fillAllDirectly(densities, this);
++                return;
++            }
++            NormalNoise noise = this.offsetNoise.noise();
++            if (noise == null) {
++                Arrays.fill(densities, 0.0);
++                return;
++            }
++            long ptr = noise.c2me$getPointer();
++            if (ptr == 0L) {
++                applier.fillAllDirectly(densities, this);
++                return;
++            }
++            double[] x = new double[densities.length];
++            double[] y = new double[densities.length];
++            double[] z = new double[densities.length];
++            for (int i = 0; i < densities.length; i++) {
++                FunctionContext pos = applier.forIndex(i);
++                x[i] = pos.blockX() * 0.25;
++                y[i] = pos.blockY() * 0.25;
++                z[i] = pos.blockZ() * 0.25;
++            }
++            Bindings.c2me_natives_noise_perlin_double_batch(
++                ptr,
++                MemorySegment.ofArray(densities),
++                MemorySegment.ofArray(x),
++                MemorySegment.ofArray(y),
++                MemorySegment.ofArray(z),
++                densities.length
++            );
++            for (int i = 0; i < densities.length; i++) {
++                densities[i] *= 4.0;
++            }
++        }
++        // Canvas end
+     }
+ 
+     protected record ShiftA(@Override DensityFunction.NoiseHolder offsetNoise) implements DensityFunctions.ShiftNoise {
+@@ -959,9 +_,49 @@
+         public KeyDispatchDataCodec<? extends DensityFunction> codec() {
+             return CODEC;
+         }
++        // Canvas start
++
++        @Override
++        public void fillArray(final double[] densities, final ContextProvider applier) {
++            if (!Config.INSTANCE.chunks.nativeAcceleration.nativeAccelerationEnabled) {
++                applier.fillAllDirectly(densities, this);
++                return;
++            }
++            NormalNoise noise = this.offsetNoise.noise();
++            if (noise == null) {
++                Arrays.fill(densities, 0.0);
++                return;
++            }
++            long ptr = noise.c2me$getPointer();
++            if (ptr == 0L) {
++                applier.fillAllDirectly(densities, this);
++                return;
++            }
++            double[] x = new double[densities.length];
++            double[] y = new double[densities.length];
++            double[] z = new double[densities.length];
++            for (int i = 0; i < densities.length; i++) {
++                FunctionContext pos = applier.forIndex(i);
++                x[i] = pos.blockX() * 0.25;
++                y[i] = 0;
++                z[i] = pos.blockZ() * 0.25;
++            }
++            Bindings.c2me_natives_noise_perlin_double_batch(
++                ptr,
++                MemorySegment.ofArray(densities),
++                MemorySegment.ofArray(x),
++                MemorySegment.ofArray(y),
++                MemorySegment.ofArray(z),
++                densities.length
++            );
++            for (int i = 0; i < densities.length; i++) {
++                densities[i] *= 4.0;
++            }
++        }
++        // Canvas end
+     }
+ 
+-    protected record ShiftB(@Override DensityFunction.NoiseHolder offsetNoise) implements DensityFunctions.ShiftNoise {
++    public record ShiftB(@Override DensityFunction.NoiseHolder offsetNoise) implements DensityFunctions.ShiftNoise { // Canvas - protected -> public
+         static final KeyDispatchDataCodec<DensityFunctions.ShiftB> CODEC = DensityFunctions.singleArgumentCodec(
+             DensityFunction.NoiseHolder.CODEC, DensityFunctions.ShiftB::new, DensityFunctions.ShiftB::offsetNoise
+         );
+@@ -980,6 +_,46 @@
+         public KeyDispatchDataCodec<? extends DensityFunction> codec() {
+             return CODEC;
+         }
++        // Canvas start
++
++        @Override
++        public void fillArray(final double[] densities, final ContextProvider applier) {
++            if (!Config.INSTANCE.chunks.nativeAcceleration.nativeAccelerationEnabled) {
++                applier.fillAllDirectly(densities, this);
++                return;
++            }
++            NormalNoise noise = this.offsetNoise.noise();
++            if (noise == null) {
++                Arrays.fill(densities, 0.0);
++                return;
++            }
++            long ptr = noise.c2me$getPointer();
++            if (ptr == 0L) {
++                applier.fillAllDirectly(densities, this);
++                return;
++            }
++            double[] x = new double[densities.length];
++            double[] y = new double[densities.length];
++            double[] z = new double[densities.length];
++            for (int i = 0; i < densities.length; i++) {
++                FunctionContext pos = applier.forIndex(i);
++                x[i] = pos.blockZ() * 0.25;
++                y[i] = pos.blockX() * 0.25;
++                z[i] = 0.0;
++            }
++            Bindings.c2me_natives_noise_perlin_double_batch(
++                ptr,
++                MemorySegment.ofArray(densities),
++                MemorySegment.ofArray(x),
++                MemorySegment.ofArray(y),
++                MemorySegment.ofArray(z),
++                densities.length
++            );
++            for (int i = 0; i < densities.length; i++) {
++                densities[i] *= 4.0;
++            }
++        }
++        // Canvas end
+     }
+ 
+     interface ShiftNoise extends DensityFunction {
+@@ -1005,7 +_,7 @@
+         }
+     }
+ 
+-    protected record ShiftedNoise(
++    public record ShiftedNoise( // Canvas - protected -> public
+         DensityFunction shiftX, DensityFunction shiftY, DensityFunction shiftZ, double xzScale, double yScale, DensityFunction.NoiseHolder noise
+     ) implements DensityFunction {
+         private static final MapCodec<DensityFunctions.ShiftedNoise> DATA_CODEC = RecordCodecBuilder.mapCodec(
+@@ -1175,7 +_,7 @@
+         double transform(DensityFunction.FunctionContext context, double value);
+     }
+ 
+-    interface TwoArgumentSimpleFunction extends DensityFunction {
++    public interface TwoArgumentSimpleFunction extends DensityFunction { // Canvas - public
+         Logger LOGGER = LogUtils.getLogger();
+ 
+         static DensityFunctions.TwoArgumentSimpleFunction create(
+@@ -1265,7 +_,7 @@
+         }
+     }
+ 
+-    protected record WeirdScaledSampler(
++    public record WeirdScaledSampler( // Canvas - protected -> public
+         @Override DensityFunction input, DensityFunction.NoiseHolder noise, DensityFunctions.WeirdScaledSampler.RarityValueMapper rarityValueMapper
+     ) implements DensityFunctions.TransformerWithContext {
+         private static final MapCodec<DensityFunctions.WeirdScaledSampler> DATA_CODEC = RecordCodecBuilder.mapCodec(
+@@ -1314,7 +_,7 @@
+                 DensityFunctions.WeirdScaledSampler.RarityValueMapper::values
+             );
+             private final String name;
+-            final Double2DoubleFunction mapper;
++            public final Double2DoubleFunction mapper; // Canvas - public
+             final double maxRarity;
+ 
+             private RarityValueMapper(final String name, final Double2DoubleFunction mapper, final double maxRarity) {
+@@ -1330,7 +_,7 @@
+         }
+     }
+ 
+-    record YClampedGradient(int fromY, int toY, double fromValue, double toValue) implements DensityFunction.SimpleFunction {
++    public record YClampedGradient(int fromY, int toY, double fromValue, double toValue) implements DensityFunction.SimpleFunction { // Canvas - public
+         private static final MapCodec<DensityFunctions.YClampedGradient> DATA_CODEC = RecordCodecBuilder.mapCodec(
+             codec -> codec.group(
+                     Codec.intRange(DimensionType.MIN_Y * 2, DimensionType.MAX_Y * 2).fieldOf("from_y").forGetter(DensityFunctions.YClampedGradient::fromY),

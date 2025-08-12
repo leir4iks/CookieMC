@@ -1,0 +1,31 @@
+--- a/net/minecraft/world/entity/animal/Rabbit.java
++++ b/net/minecraft/world/entity/animal/Rabbit.java
+@@ -669,7 +_,13 @@
+                 this.wantsToRaid = this.rabbit.wantsMoreFood();
+             }
+ 
+-            return super.canUse();
++            // Canvas start - Async target finding
++            if (this.wantsToRaid && !this.canRaid) {
++                return super.canUse();
++            } else {
++                return false;
++            }
++            // Canvas end - Async target finding
+         }
+ 
+         @Override
+@@ -722,6 +_,13 @@
+ 
+             return false;
+         }
++
++        // Canvas start - Async target finding
++        @Override
++        protected TypeToCheck typeToCheck() {
++            return TypeToCheck.RaidGarden;
++        }
++        // Canvas end - Async target finding
+     }
+ 
+     public static enum Variant implements StringRepresentable {

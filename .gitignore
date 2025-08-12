@@ -51,12 +51,12 @@ manifest.mf
 # other stuff
 /run
 
-# cookie minecraft sources
-/cookie-server/src/minecraft
+# Canvas minecraft sources
+/canvas-server/src/minecraft
 
-# cookie gradles
-/cookie-api/build.gradle.kts
-/cookie-server/build.gradle.kts
+# Canvas gradles
+/canvas-api/build.gradle.kts
+/canvas-server/build.gradle.kts
 
 # Paper upstream
 /paper-api

@@ -1,0 +1,18 @@
+--- a/net/minecraft/world/entity/ai/attributes/Attribute.java
++++ b/net/minecraft/world/entity/ai/attributes/Attribute.java
+@@ -16,10 +_,15 @@
+     private boolean syncable;
+     private final String descriptionId;
+     private Attribute.Sentiment sentiment = Attribute.Sentiment.POSITIVE;
++    // Canvas start - optimize
++    public final int uid;
++    private static final java.util.concurrent.atomic.AtomicInteger SIZE = new java.util.concurrent.atomic.AtomicInteger();
++    // Canvas end
+ 
+     protected Attribute(String descriptionId, double defaultValue) {
+         this.defaultValue = defaultValue;
+         this.descriptionId = descriptionId;
++        this.uid = SIZE.getAndAdd(1); // Canvas - optimize
+     }
+ 
+     public double getDefaultValue() {

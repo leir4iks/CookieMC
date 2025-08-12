@@ -1,0 +1,52 @@
+--- a/net/minecraft/world/entity/projectile/ThrownEnderpearl.java
++++ b/net/minecraft/world/entity/projectile/ThrownEnderpearl.java
+@@ -121,6 +_,7 @@
+             if (owner != null && isAllowedToTeleportOwner(owner, serverLevel)) {
+                 Vec3 vec3 = this.oldPosition();
+                 if (owner instanceof ServerPlayer serverPlayer) {
++                    Runnable task = () -> { // Canvas - Threaded Regions
+                     if (serverPlayer.connection.isAcceptingMessages()) {
+                         // CraftBukkit start
+                         ServerPlayer serverPlayer1 = serverPlayer.teleport(new TeleportTransition(serverLevel, vec3, Vec3.ZERO, 0.0F, 0.0F, Relative.union(Relative.ROTATION, Relative.DELTA), TeleportTransition.DO_NOTHING, org.bukkit.event.player.PlayerTeleportEvent.TeleportCause.ENDER_PEARL));
+@@ -133,8 +_,24 @@
+                             Endermite endermite = EntityType.ENDERMITE.create(serverLevel, EntitySpawnReason.TRIGGERED);
+                             if (endermite != null) {
+                                 endermite.setPlayerSpawned(true); // Purpur - Add back player spawned endermite API
+-                                endermite.snapTo(owner.getX(), owner.getY(), owner.getZ(), owner.getYRot(), owner.getXRot());
+-                                serverLevel.addFreshEntity(endermite, org.bukkit.event.entity.CreatureSpawnEvent.SpawnReason.ENDER_PEARL);
++                                // Canvas start - Threaded Regions
++                                ServerLevel world = serverPlayer1.serverLevel();
++                                Runnable spawn = () -> {
++                                    endermite.snapTo(owner.getX(), owner.getY(), owner.getZ(), owner.getYRot(), owner.getXRot());
++                                    serverLevel.addFreshEntity(endermite, org.bukkit.event.entity.CreatureSpawnEvent.SpawnReason.ENDER_PEARL);
++                                };
++
++                                if (io.canvasmc.canvas.region.ServerRegions.isTickThreadFor(world, owner.position(), net.minecraft.world.phys.Vec3.ZERO, 1)) {
++                                    spawn.run();
++                                } else {
++                                    world.server.threadedServer().taskQueue.queueTickTaskQueue(
++                                        world,
++                                        ca.spottedleaf.moonrise.common.util.CoordinateUtils.getChunkCoordinate(owner.getX()),
++                                        ca.spottedleaf.moonrise.common.util.CoordinateUtils.getChunkCoordinate(owner.getZ()),
++                                        spawn
++                                    );
++                                }
++                                // Canvas end
+                             }
+                         }
+ 
+@@ -157,6 +_,14 @@
+ 
+                         this.playSound(serverLevel, vec3);
+                     }
++                    // Canvas start - Threaded Regions
++                    };
++                    if (io.canvasmc.canvas.region.ServerRegions.isTickThreadFor(owner)) {
++                        task.run();
++                    } else {
++                        owner.getBukkitEntity().taskScheduler.schedule((_) -> task.run(), null, 1L);
++                    }
++                    // Canvas end
+                 } else {
+                     Entity entity = owner.teleport(
+                         new TeleportTransition(serverLevel, vec3, owner.getDeltaMovement(), owner.getYRot(), owner.getXRot(), TeleportTransition.DO_NOTHING)
