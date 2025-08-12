@@ -27,7 +27,6 @@ jobs:
       - name: Build Server
         run: |
           ./gradlew clean cleanCache
-          ./gradlew applyPatches --no-daemon
           ./gradlew createCanvasServer --no-daemon
 
       - name: Upload artifact
