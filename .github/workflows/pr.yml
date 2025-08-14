@@ -1,37 +1,47 @@
-name: Build
+name: Patch and Build
 
 on:
-  workflow_dispatch:
+  push:
+    branches: [ "main" ]
 
 jobs:
-  build:
+  compile_1_21_8_core_jar:
     runs-on: ubuntu-latest
+       
     steps:
-      - name: Checkout repository
+      - name: Checkout Git Repository
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Set up JDK 22
+        
+      - name: Set up JDK
         uses: actions/setup-java@v4
         with:
-          java-version: '22'
-          distribution: 'temurin'
+          distribution: zulu
+          java-version: 21
 
       - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v3
-
-      - name: Make gradlew executable
-        run: chmod +x ./gradlew
-
-      - name: Build Server
+        uses: gradle/actions/setup-gradle@v4
+        
+      - name: Configure Git User Details
         run: |
-          ./gradlew clean cleanCache
-          ./gradlew createCanvasServer --no-daemon
+          git config --global user.email "actions@github.com" && git config --global user.name "Github Actions"
+        
+      - name: Apply Patches
+        run: ./gradlew applyAllPatches
+   
+      - name: Build MojmapPublisherJar
+        run: ./gradlew buildMojmapPublisherJar
 
-      - name: Upload artifact
+      - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: server-jar
-          path: 'build/libs/*.jar'
-          retention-days: 1
+          name: Canvas 1.21.8
+          path: canvas-server/build/libs/canvas-build.*.jar
+           
+      - name: Make release
+        uses: marvinpinto/action-automatic-releases@master
+        with:
+          title: "Canvas 1.21.8 release"
+          automatic_release_tag: "latest_1.21.8"
+          files: canvas-server/build/libs/canvas-build.*.jar
+          repo_token: "${{ secrets.GITHUB_TOKEN }}"
+          prerelease: false
