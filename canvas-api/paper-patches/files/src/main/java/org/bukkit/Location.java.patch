@@ -26,7 +26,8 @@
  
      /**
       * Constructs a new Location with the given coordinates
-@@ -60,7 +60,7 @@
+@@ -60,9 +59,9 @@
+      * @param z Z coordinate
       */
      public Location(@UndefinedNullability final World world, final double x, final double y, final double z, final float yaw, final float pitch) {
          if (world != null) {
@@ -35,7 +36,7 @@
          }
  
          this.x = x;
-@@ -76,7 +76,7 @@
+@@ -78,7 +77,7 @@
       * @param world New world that this location resides in
       */
      public void setWorld(@Nullable World world) {
