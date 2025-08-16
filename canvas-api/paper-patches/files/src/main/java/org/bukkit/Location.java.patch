@@ -1,167 +1,52 @@
-import java.lang.ref.Reference;
-import java.lang.ref.WeakReference;
-import java.util.Map;
-import java.util.HashMap;
-import java.util.Collection;
-import java.util.function.Predicate;
-import io.papermc.paper.math.FinePosition;
-import io.papermc.paper.math.Rotation;
-import org.bukkit.World;
-import org.bukkit.block.Block;
-import org.bukkit.configuration.serialization.ConfigurationSerializable;
-import org.bukkit.entity.Entity;
-import org.bukkit.util.Vector;
-import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
-import org.jetbrains.annotations.UndefinedNullability;
-
-public class Location implements Cloneable, ConfigurationSerializable, io.papermc.paper.math.FinePosition {
-    private volatile Reference<World> world;
-    // Canvas start - volatile
-    private volatile double x;
-    private volatile double y;
-    private volatile double z;
-    private volatile float pitch;
-    private volatile float yaw;
-    // Canvas end
-
-    public Location(@UndefinedNullability final World world, final double x, final double y, final double z) {
-        this(world, x, y, z, 0.0F, 0.0F);
-    }
-
-    public Location(@UndefinedNullability final World world, final double x, final double y, final double z, final float yaw, final float pitch) {
-        if (world != null) {
-            this.world = new WeakReference<>(world);
-        }
-        this.x = x;
-        this.y = y;
-        this.z = z;
-        this.pitch = pitch;
-        this.yaw = yaw;
-    }
-
-    public void setWorld(@Nullable World world) {
-        this.world = (world == null) ? null : new WeakReference<>(world);
-    }
-
-    @UndefinedNullability
-    public World getWorld() {
-        Reference<World> worldRef = this.world;
-        if (worldRef == null) {
-            return null;
-        }
-        return worldRef.get();
-    }
-
-    public void setX(double x) {
-        this.x = x;
-    }
-
-    public double getX() {
-        return x;
-    }
-
-    public void setY(double y) {
-        this.y = y;
-    }
-
-    public double getY() {
-        return y;
-    }
-
-    public void setZ(double z) {
-        this.z = z;
-    }
-
-    public double getZ() {
-        return z;
-    }
-
-    public void setYaw(float yaw) {
-        this.yaw = yaw;
-    }
-
-    public float getYaw() {
-        return yaw;
-    }
-
-    public void setPitch(float pitch) {
-        this.pitch = pitch;
-    }
-
-    public float getPitch() {
-        return pitch;
-    }
-    
-    @NotNull
-    @Override
-    public Vector toVector() {
-        return new Vector(x, y, z);
-    }
-
-    @Override
-    public int hashCode() {
-        int result = 1;
-        World world = this.getWorld();
-        result = 31 * result + (world == null ? 0 : world.hashCode());
-        long temp = Double.doubleToLongBits(x);
-        result = 31 * result + (int) (temp ^ (temp >>> 32));
-        temp = Double.doubleToLongBits(y);
-        result = 31 * result + (int) (temp ^ (temp >>> 32));
-        temp = Double.doubleToLongBits(z);
-        result = 31 * result + (int) (temp ^ (temp >>> 32));
-        result = 31 * result + Float.floatToIntBits(pitch);
-        result = 31 * result + Float.floatToIntBits(yaw);
-        return result;
-    }
-
-    @Override
-    public boolean equals(Object obj) {
-        if (obj == this) return true;
-        if (!(obj instanceof Location other)) return false;
-
-        World world = this.getWorld();
-        World otherWorld = other.getWorld();
-        if (world != otherWorld && (world == null || !world.equals(otherWorld))) return false;
-
-        return Double.doubleToLongBits(this.x) == Double.doubleToLongBits(other.x) &&
-               Double.doubleToLongBits(this.y) == Double.doubleToLongBits(other.y) &&
-               Double.doubleToLongBits(this.z) == Double.doubleToLongBits(other.z) &&
-               Float.floatToIntBits(this.pitch) == Float.floatToIntBits(other.pitch) &&
-               Float.floatToIntBits(this.yaw) == Float.floatToIntBits(other.yaw);
-    }
-
-    @Override
-    public String toString() {
-        World world = getWorld();
-        return "Location{world=" + (world != null ? world.getName() : "null") +
-                ",x=" + x + ",y=" + y + ",z=" + z +
-                ",pitch=" + pitch + ",yaw=" + yaw + '}';
-    }
-    
-    @NotNull
-    @Override
-    public Location clone() {
-        try {
-            return (Location) super.clone();
-        } catch (CloneNotSupportedException e) {
-            throw new Error(e);
-        }
-    }
-    
-    @NotNull
-    @Override
-    public Map<String, Object> serialize() {
-        Map<String, Object> data = new HashMap<>();
-        World world = this.getWorld();
-        if (world != null) {
-            data.put("world", world.getName());
-        }
-        data.put("x", this.x);
-        data.put("y", this.y);
-        data.put("z", this.z);
-        data.put("yaw", this.yaw);
-        data.put("pitch", this.pitch);
-        return data;
-    }
-}
+--- a/src/main/java/org/bukkit/Location.java
++++ b/src/main/java/org/bukkit/Location.java
+@@ -6,12 +6,13 @@
+ import java.util.Collection;
+ import java.util.HashMap;
+ import java.util.Map;
++import java.lang.ref.Reference;
++import java.lang.ref.WeakReference;
+ import java.util.function.Predicate;
+ import io.papermc.paper.math.FinePosition;
+ import io.papermc.paper.math.Rotation;
+ import org.bukkit.World;
+ import org.bukkit.block.Block;
+@@ -29,15 +30,15 @@
+  * representation by the implementation.
+  */
+ public class Location implements Cloneable, ConfigurationSerializable, io.papermc.paper.math.FinePosition {
+-    private Reference<World> world;
+-    private double x;
+-    private double y;
+-    private double z;
+-    private float pitch;
+-    private float yaw;
++    private volatile Reference<World> world;
++    // Canvas start - volatile
++    private volatile double x;
++    private volatile double y;
++    private volatile double z;
++    private volatile float pitch;
++    private volatile float yaw;
++    // Canvas end
+ 
+     /**
+      * Constructs a new Location with the given coordinates
+@@ -63,7 +64,7 @@
+      */
+     public Location(@UndefinedNullability final World world, final double x, final double y, final double z, final float yaw, final float pitch) {
+         if (world != null) {
+-            this.world = new WeakReference<>(world);
++            this.world = new WeakReference<>(world); // This line remains correct, no change needed from original
+         }
+ 
+         this.x = x;
+@@ -79,7 +80,7 @@
+      * @param world New world that this location resides in
+      */
+     public void setWorld(@Nullable World world) {
+-        this.world = (world == null) ? null : new WeakReference<>(world);
++        this.world = (world == null) ? null : new WeakReference<>(world); // This line remains correct, no change needed from original
+     }
+ 
+     /**
