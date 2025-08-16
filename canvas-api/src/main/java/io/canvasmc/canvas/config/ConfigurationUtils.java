@@ -14,14 +14,8 @@ public class ConfigurationUtils {
 
     private static final Map<Class<?>, ConfigData> CACHE = Collections.synchronizedMap(new WeakHashMap<>());
 
-    // Original fields are replaced by getters that pull from the cache
-    protected static Map<String, Comment> getComments(Class<?> clazz) {
-        return getConfigData(clazz).comments;
-    }
-
-    protected static Map<String, Field> getFieldMap(Class<?> clazz) {
-        return getConfigData(clazz).fieldMap;
-    }
+    protected static final Map<String, Comment> COMMENTS = new LinkedHashMap<>();
+    protected static final Map<String, Field> FIELD_MAP = new LinkedHashMap<>();
 
     private static class ConfigData {
         final Map<String, Comment> comments = new LinkedHashMap<>();
@@ -50,7 +44,7 @@ public class ConfigurationUtils {
                     }
                 }
             }
-            return Collections.unmodifiableList(keyList);
+            return keyList;
         }
     }
 
@@ -63,8 +57,7 @@ public class ConfigurationUtils {
     }
 
     static @NotNull List<String> extractKeys(@NotNull Class<?> clazz, String prefix) {
-        // This method now retrieves the pre-computed keys from the cache,
-        // ensuring the logic is only run once per class.
-        return getConfigData(clazz).keys;
+        ConfigData data = getConfigData(clazz);
+        return data.keys;
     }
 }
