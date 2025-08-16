@@ -35,6 +35,7 @@ public class ConfigurationUtils {
                         this.comments.put(keyName, comment);
                     }
 
+                    field.setAccessible(true); // Ensure we can access the field
                     this.fieldMap.put(keyName, field);
                     if (field.getType().getEnclosingClass() == clazz) {
                         keyList.addAll(extractKeysRecursive(field.getType(), keyName));
@@ -53,6 +54,7 @@ public class ConfigurationUtils {
         return getConfigData(clazz).keys;
     }
 
+    // These methods are needed for other parts of the config system to access the cached data
     static Map<String, Comment> getComments(Class<?> clazz) {
         return getConfigData(clazz).comments;
     }
