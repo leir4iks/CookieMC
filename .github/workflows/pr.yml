@@ -31,20 +31,9 @@ jobs:
       - name: Build createMojmapPaperclipJar
         run: ./gradlew createMojmapPaperclipJar
 
-      - name: List files in the build directory
-        run: ls -R
-
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
           name: Canvas 1.21.5
-          path: canvas-server/build/libs/canvas-build.*.jar
-           
-      - name: Make release
-        uses: marvinpinto/action-automatic-releases@master
-        with:
-          title: "Canvas 1.21.5 release"
-          automatic_release_tag: "latest_1.21.5"
-          files: canvas-server/build/libs/canvas-build.*.jar
-          repo_token: "${{ secrets.GITHUB_TOKEN }}"
-          prerelease: true
+          path: canvas-server/build/libs/*.jar
+          retention-days: 1
