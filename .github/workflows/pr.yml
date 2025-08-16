@@ -28,12 +28,12 @@ jobs:
       - name: Apply Patches
         run: ./gradlew applyAllPatches
    
-      - name: Build createMojmapPaperclipJar
+      - name: Build Jar
         run: ./gradlew createMojmapPaperclipJar
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Canvas 1.21.5
-          path: canvas-server/build/libs/*.jar
+          name: canvas-paperclip-1.21.5-R0.1-SNAPSHOT-mojmap.jar
+          path: canvas-server/build/libs/canvas-paperclip-1.21.5-R0.1-SNAPSHOT-mojmap.jar
           retention-days: 1
