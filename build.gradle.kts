@@ -4,7 +4,7 @@ import org.gradle.api.tasks.testing.logging.TestLogEvent
 plugins {
     java
     `maven-publish`
-    id("io.papermc.paperweight.patcher") version "2.2.2-SNAPSHOT"
+    id("io.papermc.paperweight.patcher") version "2.0.0-SNAPSHOT"
 }
 
 allprojects {
