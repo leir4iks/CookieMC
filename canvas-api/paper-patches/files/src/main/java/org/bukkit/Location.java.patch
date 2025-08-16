@@ -1,6 +1,6 @@
 --- a/src/main/java/org/bukkit/Location.java
 +++ b/src/main/java/org/bukkit/Location.java
-@@ -6,12 +6,13 @@
+@@ -6,6 +6,8 @@
  import java.util.Collection;
  import java.util.HashMap;
  import java.util.Map;
@@ -9,9 +9,7 @@
  import java.util.function.Predicate;
  import io.papermc.paper.math.FinePosition;
  import io.papermc.paper.math.Rotation;
- import org.bukkit.World;
- import org.bukkit.block.Block;
-@@ -29,15 +30,15 @@
+@@ -29,15 +31,15 @@
   * representation by the implementation.
   */
  public class Location implements Cloneable, ConfigurationSerializable, io.papermc.paper.math.FinePosition {
@@ -32,21 +30,3 @@
  
      /**
       * Constructs a new Location with the given coordinates
-@@ -63,7 +64,7 @@
-      */
-     public Location(@UndefinedNullability final World world, final double x, final double y, final double z, final float yaw, final float pitch) {
-         if (world != null) {
--            this.world = new WeakReference<>(world);
-+            this.world = new WeakReference<>(world); // This line remains correct, no change needed from original
-         }
- 
-         this.x = x;
-@@ -79,7 +80,7 @@
-      * @param world New world that this location resides in
-      */
-     public void setWorld(@Nullable World world) {
--        this.world = (world == null) ? null : new WeakReference<>(world);
-+        this.world = (world == null) ? null : new WeakReference<>(world); // This line remains correct, no change needed from original
-     }
- 
-     /**
