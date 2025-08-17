@@ -556,8 +556,7 @@ public final class ThreadedRegionizer<R extends ThreadedRegionizer.ThreadedRegio
         }
 
         // now check whether we need to recalculate regions
-        final boolean removeDeadSections = hasExpectingMerges || region.hasNoAliveSections()
-            || (region.sectionByKey.size() >= this.minSectionRecalcCount && region.getDeadSectionPercent() >= this.maxDeadRegionPercent);
+        final boolean removeDeadSections = true;
         final boolean removedDeadSections = removeDeadSections && !region.deadSections.isEmpty();
         if (removeDeadSections) {
             // kill dead sections
