@@ -64,7 +64,7 @@
                  Placeholder.component("ping", getPingColor(player.getPing()))
          ));
      }
-@@ -44,20 +_,21 @@
+@@ -44,8 +_,8 @@
          }
          tick = 0;
  
@@ -75,23 +75,7 @@
  
          super.run();
      }
- 
--    private float getBossBarProgress() {
-+    private float getBossBarProgress(double tps, double mspt) { // Canvas - Threaded Server
-         if (PurpurConfig.commandTPSBarProgressFillMode == FillMode.MSPT) {
--            return Math.max(Math.min((float) mspt / 50.0F, 1.0F), 0.0F);
-+            return Math.max(Math.min((float) mspt / ((float) io.canvasmc.canvas.ThreadedBukkitServer.getInstance().getScheduler().getTimeBetweenTicks() / 1_000_000), 1.0F), 0.0F); // Canvas - Threaded Server
-         } else {
--            return Math.max(Math.min((float) tps / 20.0F, 1.0F), 0.0F);
-+            return Math.max(Math.min((float) tps / io.canvasmc.canvas.ThreadedBukkitServer.getInstance().getScheduler().getTickRate(), 1.0F), 0.0F); // Canvas - Threaded Server
-         }
-     }
- 
-+    /* // Canvas - Threaded Server
-     private BossBar.Color getBossBarColor() {
-         if (isGood(PurpurConfig.commandTPSBarProgressFillMode)) {
-             return PurpurConfig.commandTPSBarProgressColorGood;
-@@ -99,42 +_,29 @@
+@@ -99,42 +_,27 @@
              return false;
          }
      }
@@ -122,16 +106,11 @@
 -            color = PurpurConfig.commandTPSBarTextColorMedium;
 -        } else {
 -            color = PurpurConfig.commandTPSBarTextColorLow;
-+    private Component getMSPTColor(double mspt) {
-+        net.kyori.adventure.text.format.TextColor textColor;
-+        if (mspt < 35.0D) {
-+            textColor = net.kyori.adventure.text.format.NamedTextColor.AQUA;
-+        } else if (mspt < 45.0D) {
-+            textColor = net.kyori.adventure.text.format.NamedTextColor.GOLD;
-+        } else {
-+            textColor = net.kyori.adventure.text.format.NamedTextColor.RED;
-         }
+-        }
 -        return MiniMessage.miniMessage().deserialize(color, Placeholder.parsed("text", String.format("%.2f", mspt)));
++    private Component getMSPTColor(double mspt) {
++        net.kyori.adventure.text.format.TextColor textColor =
++            io.canvasmc.canvas.command.ThreadedServerHealthDump.getColorForMSPT(mspt);
 +        return Component.text(TWO_DECIMAL_PLACES.get().format(mspt), textColor);
      }
  
