@@ -91,7 +91,7 @@
      private BossBar.Color getBossBarColor() {
          if (isGood(PurpurConfig.commandTPSBarProgressFillMode)) {
              return PurpurConfig.commandTPSBarProgressColorGood;
-@@ -99,42 +_,27 @@
+@@ -99,42 +_,29 @@
              return false;
          }
      }
@@ -125,8 +125,11 @@
 -        }
 -        return MiniMessage.miniMessage().deserialize(color, Placeholder.parsed("text", String.format("%.2f", mspt)));
 +    private Component getMSPTColor(double mspt) {
++        final double tickTime = (double) io.canvasmc.canvas.ThreadedBukkitServer.getInstance().getScheduler().getTimeBetweenTicks() / 1_000_000D;
++        final double tickRate = io.canvasmc.canvas.ThreadedBukkitServer.getInstance().getScheduler().getTickRate();
++        double equivalentTps = Math.max(0, tickRate * (1.0 - (mspt / tickTime)));
 +        net.kyori.adventure.text.format.TextColor textColor =
-+            io.canvasmc.canvas.command.ThreadedServerHealthDump.getColorForMSPT(mspt);
++            io.canvasmc.canvas.command.ThreadedServerHealthDump.getColorForTPS(equivalentTps);
 +        return Component.text(TWO_DECIMAL_PLACES.get().format(mspt), textColor);
      }
  
