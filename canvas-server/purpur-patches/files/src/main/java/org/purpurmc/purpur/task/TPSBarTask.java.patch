@@ -91,27 +91,30 @@
      private BossBar.Color getBossBarColor() {
          if (isGood(PurpurConfig.commandTPSBarProgressFillMode)) {
              return PurpurConfig.commandTPSBarProgressColorGood;
-@@ -99,42 +_,29 @@
+@@ -99,42 +_,35 @@
              return false;
          }
      }
 +     */ // Canvas - Threaded Server
  
 -    private Component getTPSColor() {
--        String color;
++    // Canvas start - Threaded Server
++    private Component getTPSColor(double tps) {
+         String color;
 -        if (isGood(FillMode.TPS)) {
 -            color = PurpurConfig.commandTPSBarTextColorGood;
 -        } else if (isMedium(FillMode.TPS)) {
 -            color = PurpurConfig.commandTPSBarTextColorMedium;
--        } else {
++        if (tps >= 19.0D) {
++            color = PurpurConfig.commandTPSBarTextColorGood;
++        } else if (tps >= 15.0D) {
++            color = PurpurConfig.commandTPSBarTextColorMedium;
+         } else {
 -            color = PurpurConfig.commandTPSBarTextColorLow;
--        }
++            color = PurpurConfig.commandTPSBarTextColorLow;
+         }
 -        return MiniMessage.miniMessage().deserialize(color, Placeholder.parsed("text", String.format("%.2f", tps)));
-+    // Canvas start - Threaded Server
-+    private Component getTPSColor(double tps) {
-+        net.kyori.adventure.text.format.TextColor textColor =
-+            io.canvasmc.canvas.command.ThreadedServerHealthDump.getColorForTPS(tps);
-+        return Component.text(TWO_DECIMAL_PLACES.get().format(tps), textColor);
++        return MiniMessage.miniMessage().deserialize(color, Placeholder.parsed("text", TWO_DECIMAL_PLACES.get().format(tps)));
      }
  
 -    private Component getMSPTColor() {
@@ -134,7 +137,7 @@
      }
  
      private Component getPingColor(int ping) {
--        String color;
+         String color;
 -        if (isGood(FillMode.PING, ping)) {
 -            color = PurpurConfig.commandTPSBarTextColorGood;
 -        } else if (isMedium(FillMode.PING, ping)) {
@@ -143,9 +146,14 @@
 -            color = PurpurConfig.commandTPSBarTextColorLow;
 -        }
 -        return MiniMessage.miniMessage().deserialize(color, Placeholder.parsed("text", String.format("%s", ping)));
-+        net.kyori.adventure.text.format.TextColor textColor =
-+            io.canvasmc.canvas.command.ThreadedServerHealthDump.getColorForPing(ping);
-+        return Component.text(ping, textColor);
++        if (ping < 100) {
++            color = PurpurConfig.commandTPSBarTextColorGood;
++        } else if (ping < 200) {
++            color = PurpurConfig.commandTPSBarTextColorMedium;
++        } else {
++            color = PurpurConfig.commandTPSBarTextColorLow;
++        }
++        return MiniMessage.miniMessage().deserialize(color, Placeholder.parsed("text", String.format("%s", ping)));
      }
 +    // Canvas end
  
