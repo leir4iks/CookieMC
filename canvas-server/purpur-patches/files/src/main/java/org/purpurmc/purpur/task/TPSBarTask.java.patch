@@ -1,24 +1,19 @@
 --- a/src/main/java/org/purpurmc/purpur/task/TPSBarTask.java
 +++ b/src/main/java/org/purpurmc/purpur/task/TPSBarTask.java
-@@ -4,15 +4,13 @@
- import net.kyori.adventure.text.Component;
- import net.kyori.adventure.text.minimessage.MiniMessage;
- import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
-+import org.bukkit.Bukkit;
-+import org.bukkit.entity.Player;
- import org.purpurmc.purpur.PurpurConfig;
--import org.bukkit.Bukkit;
--import org.bukkit.entity.Player;
+@@ -9,9 +_,10 @@
+ import org.bukkit.entity.Player;
  
  public class TPSBarTask extends BossBarTask {
 +    public static final ThreadLocal<java.text.DecimalFormat> TWO_DECIMAL_PLACES = ThreadLocal.withInitial(() -> new java.text.DecimalFormat("0.00")); // Canvas - Threaded Regions
      private static TPSBarTask instance;
 -    private double tps = 20.0D;
 -    private double mspt = 0.0D;
++    // private double tps = 20.0D; // Canvas - Threaded Server - localize
++    // private double mspt = 0.0D; // Canvas - Threaded Server - localize
      private int tick = 0;
  
      public static TPSBarTask instance() {
-@@ -24,110 +22,101 @@
+@@ -23,16 +_,39 @@
  
      @Override
      BossBar createBossBar() {
@@ -69,12 +64,7 @@
                  Placeholder.component("ping", getPingColor(player.getPing()))
          ));
      }
- 
-     @Override
-     public void run() {
--        if (++tick < PurpurConfig.commandTPSBarTickInterval) {
-+        if (++tick < PurpurConfig.commandTPSBarUpdateRate) {
-             return;
+@@ -44,8 +_,8 @@
          }
          tick = 0;
  
@@ -85,69 +75,12 @@
  
          super.run();
      }
- 
--    private float getBossBarProgress() {
-+    private float getBossBarProgress(double tps, double mspt) { // Canvas - Threaded Server
-         if (PurpurConfig.commandTPSBarProgressFillMode == FillMode.MSPT) {
--            return Math.max(Math.min((float) mspt / 50.0F, 1.0F), 0.0F);
-+            return Math.max(Math.min((float) mspt / ((float) io.canvasmc.canvas.ThreadedBukkitServer.getInstance().getScheduler().getTimeBetweenTicks() / 1_000_000), 1.0F), 0.0F); // Canvas - Threaded Server
-         } else {
--            return Math.max(Math.min((float) tps / 20.0F, 1.0F), 0.0F);
-+            return Math.max(Math.min((float) tps / io.canvasmc.canvas.ThreadedBukkitServer.getInstance().getScheduler().getTickRate(), 1.0F), 0.0F); // Canvas - Threaded Server
+@@ -99,42 +_,29 @@
+             return false;
          }
      }
++     */ // Canvas - Threaded Server
  
--    private BossBar.Color getBossBarColor() {
--        if (isGood(PurpurConfig.commandTPSBarProgressFillMode)) {
--            return PurpurConfig.commandTPSBarProgressColorGood;
--        } else if (isMedium(PurpurConfig.commandTPSBarProgressFillMode)) {
--            return PurpurConfig.commandTPSBarProgressColorMedium;
--        } else {
--            return PurpurConfig.commandTPSBarProgressColorLow;
--        }
-+    /* // Canvas - Threaded Server
-+    private BossBar.Color getBossBarColor() {
-+        if (isGood(PurpurConfig.commandTPSBarProgressFillMode)) {
-+            return PurpurConfig.commandTPSBarProgressColorGood;
-+        } else if (isMedium(PurpurConfig.commandTPSBarProgressFillMode)) {
-+            return PurpurConfig.commandTPSBarProgressColorMedium;
-+        } else {
-+            return PurpurConfig.commandTPSBarProgressColorLow;
-+        }
-     }
--
--    private boolean isGood(FillMode mode) {
--        return isGood(mode, 0);
--    }
--
--    private boolean isGood(FillMode mode, int ping) {
--        if (mode == FillMode.MSPT) {
--            return mspt < 40;
--        } else if (mode == FillMode.TPS) {
--            return tps >= 19;
--        } else if (mode == FillMode.PING) {
--            return ping < 100;
--        } else {
--            return false;
--        }
--    }
--
--    private boolean isMedium(FillMode mode) {
--        return isMedium(mode, 0);
--    }
--
--    private boolean isMedium(FillMode mode, int ping) {
--        if (mode == FillMode.MSPT) {
--            return mspt < 50;
--        } else if (mode == FillMode.TPS) {
--            return tps >= 15;
--        } else if (mode == FillMode.PING) {
--            return ping < 200;
--        } else {
--            return false;
--        }
--    }
--
 -    private Component getTPSColor() {
 -        String color;
 -        if (isGood(FillMode.TPS)) {
@@ -158,8 +91,13 @@
 -            color = PurpurConfig.commandTPSBarTextColorLow;
 -        }
 -        return MiniMessage.miniMessage().deserialize(color, Placeholder.parsed("text", String.format("%.2f", tps)));
--    }
--
++    // Canvas start - Threaded Server
++    private Component getTPSColor(double tps) {
++        net.kyori.adventure.text.format.TextColor textColor =
++            io.canvasmc.canvas.command.ThreadedServerHealthDump.getColorForTPS(tps);
++        return Component.text(TWO_DECIMAL_PLACES.get().format(tps), textColor);
+     }
+ 
 -    private Component getMSPTColor() {
 -        String color;
 -        if (isGood(FillMode.MSPT)) {
@@ -168,11 +106,20 @@
 -            color = PurpurConfig.commandTPSBarTextColorMedium;
 -        } else {
 -            color = PurpurConfig.commandTPSBarTextColorLow;
--        }
++    private Component getMSPTColor(double mspt) {
++        net.kyori.adventure.text.format.TextColor textColor;
++        if (mspt < 35.0D) {
++            textColor = net.kyori.adventure.text.format.NamedTextColor.AQUA;
++        } else if (mspt < 45.0D) {
++            textColor = net.kyori.adventure.text.format.NamedTextColor.GOLD;
++        } else {
++            textColor = net.kyori.adventure.text.format.NamedTextColor.RED;
+         }
 -        return MiniMessage.miniMessage().deserialize(color, Placeholder.parsed("text", String.format("%.2f", mspt)));
--    }
--
--    private Component getPingColor(int ping) {
++        return Component.text(TWO_DECIMAL_PLACES.get().format(mspt), textColor);
+     }
+ 
+     private Component getPingColor(int ping) {
 -        String color;
 -        if (isGood(FillMode.PING, ping)) {
 -            color = PurpurConfig.commandTPSBarTextColorGood;
@@ -182,33 +129,10 @@
 -            color = PurpurConfig.commandTPSBarTextColorLow;
 -        }
 -        return MiniMessage.miniMessage().deserialize(color, Placeholder.parsed("text", String.format("%s", ping)));
--    }
-+     */ // Canvas - Threaded Server
-+
-+    // Canvas start - Threaded Server
-+    private Component getTPSColor(double tps) {
-+        net.kyori.adventure.text.format.TextColor textColor =
-+            io.canvasmc.canvas.command.ThreadedServerHealthDump.getColorForTPS(tps);
-+        return Component.text(TWO_DECIMAL_PLACES.get().format(tps), textColor);
-+    }
-+
-+    private Component getMSPTColor(double mspt) {
-+        net.kyori.adventure.text.format.TextColor textColor;
-+        if (mspt < 35.0D) {
-+            textColor = net.kyori.adventure.text.format.NamedTextColor.AQUA;
-+        } else if (mspt < 45.0D) {
-+            textColor = net.kyori.adventure.text.format.NamedTextColor.GOLD;
-+        } else {
-+            textColor = net.kyori.adventure.text.format.NamedTextColor.RED;
-+        }
-+        return Component.text(TWO_DECIMAL_PLACES.get().format(mspt), textColor);
-+    }
-+
-+    private Component getPingColor(int ping) {
 +        net.kyori.adventure.text.format.TextColor textColor =
 +            io.canvasmc.canvas.command.ThreadedServerHealthDump.getColorForPing(ping);
 +        return Component.text(ping, textColor);
-+    }
+     }
 +    // Canvas end
  
      public enum FillMode {
