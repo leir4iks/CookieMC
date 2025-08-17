@@ -64,7 +64,7 @@
                  Placeholder.component("ping", getPingColor(player.getPing()))
          ));
      }
-@@ -44,8 +_,8 @@
+@@ -44,20 +_,21 @@
          }
          tick = 0;
  
@@ -75,7 +75,15 @@
  
          super.run();
      }
-@@ -59,6 +_,7 @@
+ 
+-    private float getBossBarProgress() {
++    private float getBossBarProgress(double tps, double mspt) { // Canvas - Threaded Server
+         if (PurpurConfig.commandTPSBarProgressFillMode == FillMode.MSPT) {
+-            return Math.max(Math.min((float) mspt / 50.0F, 1.0F), 0.0F);
++            return Math.max(Math.min((float) mspt / ((float) io.canvasmc.canvas.ThreadedBukkitServer.getInstance().getScheduler().getTimeBetweenTicks() / 1_000_000), 1.0F), 0.0F); // Canvas - Threaded Server
+         } else {
+-            return Math.max(Math.min((float) tps / 20.0F, 1.0F), 0.0F);
++            return Math.max(Math.min((float) tps / io.canvasmc.canvas.ThreadedBukkitServer.getInstance().getScheduler().getTickRate(), 1.0F), 0.0F); // Canvas - Threaded Server
          }
      }
  
