@@ -1,10 +1,11 @@
 --- a/src/main/java/org/purpurmc/purpur/task/TPSBarTask.java
 +++ b/src/main/java/org/purpurmc/purpur/task/TPSBarTask.java
-@@ -9,9 +_,10 @@
+@@ -9,7 +9,7 @@
  import org.bukkit.entity.Player;
  
  public class TPSBarTask extends BossBarTask {
-+    public static final ThreadLocal<java.text.DecimalFormat> TWO_DECIMAL_PLACES = ThreadLocal.withInitial(() -> new java.text.DecimalFormat("#,##0.00")); // Canvas - Threaded Regions
+-    public static final ThreadLocal<java.text.DecimalFormat> TWO_DECIMAL_PLACES = ThreadLocal.withInitial(() -> new java.text.DecimalFormat("#,##0.00")); // Canvas - Threaded Regions
++    public static final ThreadLocal<java.text.DecimalFormat> TWO_DECIMAL_PLACES = ThreadLocal.withInitial(() -> new java.text.DecimalFormat("0.00")); // Canvas - Threaded Regions
      private static TPSBarTask instance;
 -    private double tps = 20.0D;
 -    private double mspt = 0.0D;
@@ -13,13 +14,7 @@
      private int tick = 0;
  
      public static TPSBarTask instance() {
-@@ -23,16 +_,37 @@
- 
-     @Override
-     BossBar createBossBar() {
--        return BossBar.bossBar(Component.text(""), 0.0F, instance().getBossBarColor(), PurpurConfig.commandTPSBarProgressOverlay);
-+        return BossBar.bossBar(Component.text(""), 0.0F, Bukkit.getServer().isRegionized() ? BossBar.Color.BLUE : BossBar.Color.GREEN, PurpurConfig.commandTPSBarProgressOverlay); // Canvas - Threaded Server
-     }
+@@ -23,28 +23,37 @@
  
      @Override
      void updateBossBar(BossBar bossbar, Player player) {
@@ -35,18 +30,25 @@
 +        io.canvasmc.canvas.region.Region region = Bukkit.getThreadedServer().getRegionAtChunk(
 +            levelAccess.getWorld(), chunkX, chunkZ
 +        );
-+        double tps = Double.parseDouble(TWO_DECIMAL_PLACES.get().format(
-+            player.getServer().isRegionized() ?
-+                region == null ? -1 : region.getTickHandle().getTps5s().getAverage() :
-+                levelAccess.getTps5s().getAverage()
-+        ));
-+        double mspt = Double.parseDouble(TWO_DECIMAL_PLACES.get().format(
-+            player.getServer().isRegionized() ?
-+                region == null ? -1 : region.getTickHandle().getTickTimes5s().getAverage() :
-+                levelAccess.getTickTimes5s().getAverage()
-+        ));
++        double tps = player.getServer().isRegionized() ?
++                (region == null ? -1 : region.getTickHandle().getTps5s().getAverage()) :
++                levelAccess.getTps5s().getAverage();
++
++        double mspt = player.getServer().isRegionized() ?
++                (region == null ? -1 : region.getTickHandle().getTickTimes5s().getAverage()) :
++                levelAccess.getTickTimes5s().getAverage();
++
++        BossBar.Color barColor;
++        if (mspt < 35.0D) {
++            barColor = BossBar.Color.BLUE;
++        } else if (mspt < 45.0D) {
++            barColor = BossBar.Color.YELLOW;
++        } else {
++            barColor = BossBar.Color.RED;
++        }
++
 +        bossbar.progress(getBossBarProgress(tps, mspt));
-+        bossbar.color(player.getServer().isRegionized() ? BossBar.Color.BLUE : BossBar.Color.GREEN);
++        bossbar.color(barColor);
 +        bossbar.name(MiniMessage.miniMessage().deserialize(
 +            "<gray>" + (player.getServer().isRegionized() ? "Region" : "World") +
 +                " TPS<yellow>:</yellow> <tps> " + (player.getServer().isRegionized() ? "Region" : "World") +
@@ -57,7 +59,7 @@
                  Placeholder.component("ping", getPingColor(player.getPing()))
          ));
      }
-@@ -44,20 +_,21 @@
+@@ -56,20 +65,21 @@
          }
          tick = 0;
  
@@ -84,7 +86,7 @@
      private BossBar.Color getBossBarColor() {
          if (isGood(PurpurConfig.commandTPSBarProgressFillMode)) {
              return PurpurConfig.commandTPSBarProgressColorGood;
-@@ -99,42 +_,27 @@
+@@ -111,42 +121,29 @@
              return false;
          }
      }
@@ -104,7 +106,7 @@
 +    private Component getTPSColor(double tps) {
 +        net.kyori.adventure.text.format.TextColor textColor =
 +            io.canvasmc.canvas.command.ThreadedServerHealthDump.getColorForTPS(tps);
-+        return Component.text(tps, textColor);
++        return Component.text(TWO_DECIMAL_PLACES.get().format(tps), textColor);
      }
  
 -    private Component getMSPTColor() {
@@ -115,12 +117,17 @@
 -            color = PurpurConfig.commandTPSBarTextColorMedium;
 -        } else {
 -            color = PurpurConfig.commandTPSBarTextColorLow;
--        }
--        return MiniMessage.miniMessage().deserialize(color, Placeholder.parsed("text", String.format("%.2f", mspt)));
 +    private Component getMSPTColor(double mspt) {
-+        net.kyori.adventure.text.format.TextColor textColor =
-+            io.canvasmc.canvas.command.ThreadedServerHealthDump.getColorForMSPT(mspt);
-+        return Component.text(mspt, textColor);
++        net.kyori.adventure.text.format.TextColor textColor;
++        if (mspt < 35.0D) {
++            textColor = net.kyori.adventure.text.format.NamedTextColor.AQUA;
++        } else if (mspt < 45.0D) {
++            textColor = net.kyori.adventure.text.format.NamedTextColor.GOLD;
++        } else {
++            textColor = net.kyori.adventure.text.format.NamedTextColor.RED;
+         }
+-        return MiniMessage.miniMessage().deserialize(color, Placeholder.parsed("text", String.format("%.2f", mspt)));
++        return Component.text(TWO_DECIMAL_PLACES.get().format(mspt), textColor);
      }
  
      private Component getPingColor(int ping) {
