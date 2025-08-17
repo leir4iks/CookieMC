@@ -115,22 +115,22 @@
      }
  
 -    private Component getMSPTColor() {
--        String color;
++    private Component getMSPTColor(double mspt) {
+         String color;
 -        if (isGood(FillMode.MSPT)) {
 -            color = PurpurConfig.commandTPSBarTextColorGood;
 -        } else if (isMedium(FillMode.MSPT)) {
 -            color = PurpurConfig.commandTPSBarTextColorMedium;
--        } else {
++        if (mspt < 35.0D) {
++            color = PurpurConfig.commandTPSBarTextColorGood;
++        } else if (mspt < 45.0D) {
++            color = PurpurConfig.commandTPSBarTextColorMedium;
+         } else {
 -            color = PurpurConfig.commandTPSBarTextColorLow;
--        }
++            color = PurpurConfig.commandTPSBarTextColorLow;
+         }
 -        return MiniMessage.miniMessage().deserialize(color, Placeholder.parsed("text", String.format("%.2f", mspt)));
-+    private Component getMSPTColor(double mspt) {
-+        final double tickTime = (double) io.canvasmc.canvas.ThreadedBukkitServer.getInstance().getScheduler().getTimeBetweenTicks() / 1_000_000D;
-+        final double tickRate = io.canvasmc.canvas.ThreadedBukkitServer.getInstance().getScheduler().getTickRate();
-+        double equivalentTps = Math.max(0, tickRate * (1.0 - (mspt / tickTime)));
-+        net.kyori.adventure.text.format.TextColor textColor =
-+            io.canvasmc.canvas.command.ThreadedServerHealthDump.getColorForTPS(equivalentTps);
-+        return Component.text(TWO_DECIMAL_PLACES.get().format(mspt), textColor);
++        return MiniMessage.miniMessage().deserialize(color, Placeholder.parsed("text", TWO_DECIMAL_PLACES.get().format(mspt)));
      }
  
      private Component getPingColor(int ping) {
