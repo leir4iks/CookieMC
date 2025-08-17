@@ -75,6 +75,14 @@
  
          super.run();
      }
+@@ -59,6 +_,7 @@
+         }
+     }
+ 
++    /* // Canvas - Threaded Server
+     private BossBar.Color getBossBarColor() {
+         if (isGood(PurpurConfig.commandTPSBarProgressFillMode)) {
+             return PurpurConfig.commandTPSBarProgressColorGood;
 @@ -99,42 +_,29 @@
              return false;
          }
