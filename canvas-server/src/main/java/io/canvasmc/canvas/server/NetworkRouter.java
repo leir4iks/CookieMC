@@ -35,7 +35,7 @@ public class NetworkRouter {
                 return removed;
             } finally {
                 if (removed && Config.INSTANCE.debug.logConnectionDocking)
-                    CanvasBootstrap.LOGGER.info("Undocked connection for \"{}\" from network router for {}", connection.getPlayer().getName().getString(), NetworkRouter.this.world);
+                    CanvasBootstrap.LOGGER.info("Removed docked connection for \"{}\" from network router in {}", connection.getPlayer().getName().getString(), NetworkRouter.this.world);
             }
         }
     };
@@ -67,9 +67,12 @@ public class NetworkRouter {
         final int chunkX = player.chunkPosition().x;
         final int chunkZ = player.chunkPosition().z;
         final ServerChunkCache chunkSource = player.serverLevel().chunkSource;
+
+        // add the ticket regardless of whether the region is loaded or not
+        chunkSource.updateRegionTicket(chunkX, chunkZ, true, TicketType.NETWORK_ROUTER);
+
         this.world.regioniser.computeAtRegionIfPresentOrElseUnsynchronized(chunkX, chunkZ, (_) -> {
             // region is present, move to region
-            chunkSource.updateRegionTicket(chunkX, chunkZ, true, TicketType.NETWORK_ROUTER);
             ThreadedRegionizer.ThreadedRegion<ServerRegions.TickRegionData, ServerRegions.TickRegionSectionData> region =
                 this.world.regioniser.getRegionAtSynchronised(chunkX, chunkZ);
             if (region == null) {
@@ -80,7 +83,6 @@ public class NetworkRouter {
             region.getData().tickData.connections.add(connection);
         }, () -> {
             // schedule, we need to load this chunk
-            chunkSource.updateRegionTicket(chunkX, chunkZ, true, TicketType.NETWORK_ROUTER);
             chunkSource.getChunk(chunkX, chunkZ, true);
         });
     }
@@ -90,6 +92,13 @@ public class NetworkRouter {
         connection.computeIfOwningTickDataPresent((tickData) -> {
             tickData.connections.remove(connection);
             connection.owner.set(null);
+            final ServerPlayer player = connection.getPlayer();
+            if (player != null) {
+                this.world.chunkSource.updateRegionTicket(player.chunkPosition(), false, TicketType.NETWORK_ROUTER);
+                if (Config.INSTANCE.debug.logConnectionDocking) {
+                    CanvasBootstrap.LOGGER.info("Removed network router ticket for \"{}\" in {}", player.getName().getString(), this.world);
+                }
+            }
         });
     }
 
