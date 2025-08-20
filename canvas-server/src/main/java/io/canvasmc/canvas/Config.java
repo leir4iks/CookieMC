@@ -197,6 +197,8 @@ public class Config {
         public boolean logTicketDebug = false;
         @Comment("Logs connection docking and undocking")
         public boolean logConnectionDocking = false;
+        @Comment("Logs task cancellations in inactive/destroyed regions")
+        public boolean logRegionTaskCancellation = false;
     }
 
     public Fixes fixes = new Fixes();
@@ -478,7 +480,7 @@ public class Config {
 
                     EntityType.byString(typeId).ifPresentOrElse(entityType ->
                             entityType.dabEnabled = false,
-                        () -> CanvasBootstrap.LOGGER.warn("Skip unknown entity {}, in {}", typeId, "entities.dynamicActivationofBrain.blackedEntities.blacklisted-entities")
+                        () -> CanvasBootstrap.LOGGER.warn("Skip unknown entity {}, in {}", typeId, "entities.dynamicActivationofBrain.blacklisted-entities")
                     );
                 }
             }

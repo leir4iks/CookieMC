@@ -287,6 +287,16 @@ public final class RegionizedTaskQueue {
             }
         }
 
+        public void cancelAllTasks() {
+            this.cancelAllTasksAndCount();
+        }
+
+        public int cancelAllTasksAndCount() {
+            int cancelledCount = this.tickTaskQueue.cancelAllAndCount();
+            cancelledCount += this.chunkQueue.cancelAllAndCount();
+            return cancelledCount;
+        }
+
         public int size() {
             return this.tickTaskQueue.getScheduledTasks() + this.chunkQueue.getScheduledTasks();
         }
@@ -368,6 +378,29 @@ public final class RegionizedTaskQueue {
                 this.isDestroyed = true;
                 mergeInto(target, this.queues);
             }
+        }
+
+        public void cancelAll() {
+            this.cancelAllAndCount();
+        }
+
+        public int cancelAllAndCount() {
+            int cancelledCount = 0;
+            synchronized (this) {
+                if (this.isDestroyed) {
+                    return 0;
+                }
+                this.isDestroyed = true;
+                for (final ArrayDeque<ChunkBasedPriorityTask> queue : this.queues) {
+                    ChunkBasedPriorityTask task;
+                    while ((task = queue.pollFirst()) != null) {
+                        if (task.cancel()) {
+                            cancelledCount++;
+                        }
+                    }
+                }
+            }
+            return cancelledCount;
         }
 
         // into is a map of section coordinate to region

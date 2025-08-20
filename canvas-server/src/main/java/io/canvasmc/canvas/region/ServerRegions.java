@@ -1392,6 +1392,10 @@ public class ServerRegions {
         @Override
         public void onRegionDestroy(final ThreadedRegionizer.ThreadedRegion<TickRegionData, TickRegionSectionData> region) {
             TickRegionData data = region.getData();
+            final int cancelled = data.tickData.getTaskQueueData().cancelAllTasksAndCount();
+            if (Config.INSTANCE.debug.logRegionTaskCancellation && cancelled > 0) {
+                CanvasBootstrap.LOGGER.info("Cancelled " + cancelled + " pending tasks for destroyed region " + region);
+            }
             for (final Connection connection : data.tickData.connections) {
                 data.world.networkRouter.connectToWorld(connection);
             }
@@ -1406,6 +1410,10 @@ public class ServerRegions {
         @Override
         public void onRegionInactive(final ThreadedRegionizer.@NotNull ThreadedRegion<TickRegionData, TickRegionSectionData> region) {
             TickRegionData data = region.getData();
+            final int cancelled = data.tickData.getTaskQueueData().cancelAllTasksAndCount();
+            if (Config.INSTANCE.debug.logRegionTaskCancellation && cancelled > 0) {
+                CanvasBootstrap.LOGGER.info("Cancelled " + cancelled + " pending tasks for inactive region " + region);
+            }
             data.tickHandle.tick.markNonSchedulable();
         }
 
