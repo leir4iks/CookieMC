@@ -1,59 +1,68 @@
---- a/ca/spottedleaf/moonrise/patches/chunk_system/level/entity/server/ServerEntityLookup.java
-+++ b/ca/spottedleaf/moonrise/patches/chunk_system/level/entity/server/ServerEntityLookup.java
-@@ -3,6 +3,7 @@
- import ca.spottedleaf.moonrise.common.PlatformHooks;
- import ca.spottedleaf.moonrise.common.list.ReferenceList;
+--- a/ca/spottedleaf/moonrise/patches/chunk_system/level/entity/EntityLookup.java
++++ b/ca/spottedleaf/moonrise/patches/chunk_system/level/entity/EntityLookup.java
+@@ -6,6 +_,8 @@
  import ca.spottedleaf.moonrise.common.util.CoordinateUtils;
-+import ca.spottedleaf.moonrise.common.util.TickThread;
- import ca.spottedleaf.moonrise.patches.chunk_system.level.ChunkSystemServerLevel;
- import ca.spottedleaf.moonrise.patches.chunk_system.level.entity.ChunkEntitySlices;
- import ca.spottedleaf.moonrise.patches.chunk_system.level.entity.EntityLookup;
-@@ -61,7 +62,7 @@
-                                                final int oldSectionX, final int oldSectionY, final int oldSectionZ,
-                                                final int newSectionX, final int newSectionY, final int newSectionZ) {
-         if (entity instanceof ServerPlayer player) {
--            ((ChunkSystemServerLevel)this.serverWorld).moonrise$getNearbyPlayers().tickPlayer(player);
-+            (this.serverWorld).moonrise$getNearbyPlayers(entity.chunkPosition()).tickPlayer(player); // Canvas - Threaded Regions
+ import ca.spottedleaf.moonrise.common.util.WorldUtil;
+ import ca.spottedleaf.moonrise.patches.chunk_system.entity.ChunkSystemEntity;
++import io.canvasmc.canvas.entity.EntityStatusLock;
++import io.canvasmc.canvas.region.ServerRegions;
+ import net.minecraft.core.BlockPos;
+ import net.minecraft.server.level.FullChunkStatus;
+ import net.minecraft.util.AbortableIterationConsumer;
+@@ -93,8 +_,14 @@
+         if (entity == null) {
+             return null;
          }
-         PlatformHooks.get().entityMove(
-             entity,
-@@ -73,28 +74,35 @@
+-        final Visibility visibility = EntityLookup.getEntityStatus(entity);
+-        return visibility.isAccessible() ? entity : null;
++        // Canvas start
++        final FullChunkStatus entityStatus = ((ChunkSystemEntity) entity).moonrise$getChunkStatus();
++        return switch (entityStatus) {
++            case INACCESSIBLE -> null;
++            case FULL, BLOCK_TICKING, ENTITY_TICKING -> entity;
++            case null -> null;
++        };
++        // Canvas end
+     }
+ 
      @Override
-     protected void addEntityCallback(final Entity entity) {
-         if (entity instanceof ServerPlayer player) {
--            ((ChunkSystemServerLevel)this.serverWorld).moonrise$getNearbyPlayers().addPlayer(player);
-+            // ((ChunkSystemServerLevel)this.serverWorld).moonrise$getNearbyPlayers().addPlayer(player); // Canvas - Threaded Regions
+@@ -235,6 +_,7 @@
+                                    final boolean created, final boolean destroyed) {
+         this.checkThread(entity, "Entity status change must only happen on the main thread");
+ 
++        try { entity.statusLock.acquire(); // Canvas - threadsafe entity status changes
+         if (((ChunkSystemEntity)entity).moonrise$isUpdatingSectionStatus()) {
+             // recursive status update
+             LOGGER.error("Cannot recursively update entity chunk status for entity " + entity, new Throwable());
+@@ -328,6 +_,7 @@
+                 slices.stopPreventingStatusUpdates(false);
+             }
          }
-+        io.canvasmc.canvas.region.ServerRegions.getTickData(this.world.level()).addEntity(entity); // Canvas - Threaded Regions
++        } finally { entity.statusLock.release(); } // Canvas - threadsafe entity status changes
      }
  
-     @Override
-     protected void removeEntityCallback(final Entity entity) {
-         if (entity instanceof ServerPlayer player) {
--            ((ChunkSystemServerLevel)this.serverWorld).moonrise$getNearbyPlayers().removePlayer(player);
-+            (this.serverWorld).moonrise$getNearbyPlayers(entity.chunkPosition()).removePlayer(player); // Canvas - Threaded Regions
+     public void chunkStatusChange(final int x, final int z, final FullChunkStatus newStatus) {
+@@ -398,7 +_,14 @@
+             return Visibility.TICKING;
+         }
+         final FullChunkStatus entityStatus = ((ChunkSystemEntity)entity).moonrise$getChunkStatus();
+-        return Visibility.fromFullChunkStatus(entityStatus == null ? FullChunkStatus.INACCESSIBLE : entityStatus);
++        // Canvas start
++        return switch (entityStatus) {
++            case INACCESSIBLE -> Visibility.HIDDEN;
++            case FULL, BLOCK_TICKING -> Visibility.TRACKED;
++            case ENTITY_TICKING -> Visibility.TICKING;
++            case null -> Visibility.HIDDEN;
++        };
++        // Canvas end
+     }
+ 
+     protected boolean addEntity(final Entity entity, final boolean fromDisk, final boolean event) {
+@@ -990,6 +_,7 @@
+             EntityLookup.this.removeEntityCallback(entity);
+ 
+             this.entity.setLevelCallback(NoOpCallback.INSTANCE);
++            ServerRegions.getTickData(entity.level().level()).removeEntity(entity); // Canvas - Threaded Regions
          }
      }
  
-     @Override
-     protected void entityStartLoaded(final Entity entity) {
-         // Moonrise start - entity tracker
--        this.trackerEntities.add(entity);
-+        io.canvasmc.canvas.region.ServerRegions.getRegionizedTickData(entity.chunkPosition().x, entity.chunkPosition().z, this.serverWorld).getTrackerEntities(entity.chunkPosition()).add(entity); // Canvas - Threaded Regions
-         // Moonrise end - entity tracker
-     }
- 
-     @Override
-     protected void entityEndLoaded(final Entity entity) {
-         // Moonrise start - entity tracker
--        this.trackerEntities.remove(entity);
-+        io.canvasmc.canvas.region.ServerRegions.getRegionizedTickData(entity.chunkPosition().x, entity.chunkPosition().z, this.serverWorld).getTrackerEntities(entity.chunkPosition()).remove(entity); // Canvas - Threaded Regions
-         // Moonrise end - entity tracker
-     }
- 
-+    public void performSynchronousRemoval(final Entity entity) {
-+        TickThread.ensureTickThread(entity, "Performing synchronous entity removal");
-+        this.removeEntityCallback(entity);
-+        this.entityEndLoaded(entity);
-+    }
-+
