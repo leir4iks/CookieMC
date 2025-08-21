@@ -86,6 +86,12 @@ import org.bukkit.event.player.PlayerTeleportEvent;
 import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import java.util.concurrent.CompletableFuture;
+import ca.spottedleaf.moonrise.patches.chunk_system.level.ChunkSystemServerLevel;
+import ca.spottedleaf.moonrise.patches.chunk_system.level.entity.server.ServerEntityLookup;
+import net.minecraft.server.level.ServerChunkCache;
+import net.minecraft.server.level.TicketType;
+import net.minecraft.world.level.portal.TeleportTransition;
 
 public class ServerRegions {
 
@@ -411,6 +417,91 @@ public class ServerRegions {
                 onComplete.accept(null);
             }
         }
+    }
+
+    public static CompletableFuture<Boolean> teleportAsync(
+        final ServerPlayer player,
+        final Location location,
+        final PlayerTeleportEvent.TeleportCause cause
+    ) {
+        if (!player.isAlive()) {
+            return CompletableFuture.completedFuture(false);
+        }
+
+        final ServerLevel sourceLevel = player.serverLevel();
+        final ServerRegion sourceRegion = getRegionFor(sourceLevel, player.chunkPosition());
+        final ServerLevel targetLevel = ((CraftWorld) location.getWorld()).getHandle();
+        final ServerRegion targetRegion = getRegionFor(targetLevel, new ChunkPos(location.getBlockX() >> 4, location.getBlockZ() >> 4));
+
+        if (sourceRegion == targetRegion) {
+            return CompletableFuture.supplyAsync(() -> {
+                if (!player.isAlive()) {
+                    return false;
+                }
+                return player.getBukkitEntity().teleport(location, cause);
+            }, sourceRegion.getExecutor());
+        }
+
+        final CompletableFuture<Void> cleanupFuture = CompletableFuture.runAsync(() -> {
+            if (!player.isAlive()) {
+                throw new IllegalStateException("player " + player.getScoreboardName() + " became invalid during teleport cleanup phase");
+            }
+            final ServerEntityLookup entityLookup = ((ChunkSystemServerLevel)sourceLevel).getVisibleEntities();
+            entityLookup.performSynchronousRemoval(player);
+            sourceLevel.getChunkSource().getChunkMap().untrack(player);
+        }, sourceRegion.getExecutor());
+
+        return cleanupFuture.thenComposeAsync(v -> {
+            final CompletableFuture<Boolean> placementFuture = new CompletableFuture<>();
+            if (!player.isAlive()) {
+                placementFuture.complete(false);
+                return placementFuture;
+            }
+
+            targetLevel.loadChunksForMoveAsync(
+                player.getBoundingBoxAt(location.getX(), location.getY(), location.getZ()),
+                ca.spottedleaf.concurrentutil.util.Priority.HIGHER,
+                (loadedChunks) -> {
+                    try {
+                        if (!player.isAlive()) {
+                            placementFuture.complete(false);
+                            return;
+                        }
+
+                        final ServerChunkCache chunkCache = targetLevel.getChunkSource();
+                        for (final net.minecraft.world.level.chunk.ChunkAccess chunk : loadedChunks) {
+                            chunkCache.addTicketAtLevel(TicketType.POST_TELEPORT, chunk.getPos(), 33);
+                        }
+
+                        if (player.level() != targetLevel) {
+                            player.teleport(new TeleportTransition(targetLevel, new Vec3(location.getX(), location.getY(), location.getZ()), Vec3.ZERO, location.getYaw(), location.getPitch(), TeleportTransition.PostTeleportTransition.STANDARD));
+                        } else {
+                            player.teleportTo(targetLevel, location.getX(), location.getY(), location.getZ(), Set.of(), location.getYaw(), location.getPitch(), false);
+                        }
+
+                        placementFuture.complete(true);
+                    } catch (final Throwable throwable) {
+                        placementFuture.completeExceptionally(throwable);
+                    }
+                }
+            );
+            return placementFuture;
+        }, targetRegion.getExecutor()).exceptionally(ex -> {
+            MinecraftServer.LOGGER.error("region teleport failed for player " + player.getScoreboardName(), ex);
+            if (!player.isRemoved() && player.serverLevel() != sourceLevel) {
+                try {
+                    sourceRegion.execute(() -> {
+                        if (player.isAlive()) {
+                            player.teleportTo(sourceLevel, player.getX(), player.getY(), player.getZ(), player.getYRot(), player.getXRot());
+                        }
+                    });
+                } catch (final Exception rescueEx) {
+                    MinecraftServer.LOGGER.error("failed to rescue player " + player.getScoreboardName() + " after teleport failure", rescueEx);
+                    player.connection.disconnect(Component.literal("teleportation failed, please reconnect."));
+                }
+            }
+            return false;
+        });
     }
 
     public static final class TickRegionSectionData implements ThreadedRegionizer.ThreadedRegionSectionData {

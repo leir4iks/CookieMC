@@ -1,6 +1,6 @@
 --- a/ca/spottedleaf/moonrise/common/misc/NearbyPlayers.java
 +++ b/ca/spottedleaf/moonrise/common/misc/NearbyPlayers.java
-@@ -59,23 +_,33 @@
+@@ -59,27 +59,23 @@
      public static final int GENERAL_REALLY_SMALL_AREA_VIEW_DISTANCE_BLOCKS = (GENERAL_REALLY_SMALL_VIEW_DISTANCE << 4);
  
      private final ServerLevel world;
@@ -16,11 +16,6 @@
 +            this.directByChunk[i] = it.unimi.dsi.fastutil.longs.Long2ReferenceMaps.synchronize(new Long2ReferenceOpenHashMap<>()); // Canvas - synchronized
          }
      }
-+    // Canvas start - Threaded Regions
-+    public boolean hasPlayer(ServerPlayer serverPlayer) {
-+        return this.players.containsKey(serverPlayer);
-+    }
-+    // Canvas end
  
      public NearbyPlayers(final ServerLevel world) {
          this.world = world;
@@ -28,29 +23,22 @@
  
 -    public void addPlayer(final ServerPlayer player) {
 +    public synchronized void addPlayer(final ServerPlayer player) { // Canvas - synchronized
-+        // Canvas start - Threaded Regions
-+        if (player.npr.get() != this) {
-+            player.npr.set(this);
-+        } else return; // already has player
-+        // Canvas end
          final TrackedPlayer[] newTrackers = new TrackedPlayer[TOTAL_MAP_TYPES];
          if (this.players.putIfAbsent(player, newTrackers) != null) {
--            throw new IllegalStateException("Already have player " + player);
-+            return; // Canvas - just silence, can be run twice on teleport/add
+             throw new IllegalStateException("we already have player " + player);
          }
  
          final ChunkPos chunk = player.chunkPosition();
-@@ -89,7 +_,8 @@
+@@ -89,7 +85,7 @@
          this.tickPlayer(player);
      }
  
 -    public void removePlayer(final ServerPlayer player) {
 +    public synchronized void removePlayer(final ServerPlayer player) { // Canvas - synchronized
-+        if (player.npr.get() == this) player.npr.set(null); // Canvas - Threaded Regions
          final TrackedPlayer[] players = this.players.remove(player);
          if (players == null) {
              return; // May be called during teleportation before the player is actually placed
-@@ -100,7 +_,7 @@
+@@ -100,7 +96,7 @@
          }
      }
  
@@ -59,25 +47,18 @@
          if (this.players.isEmpty()) {
              return;
          }
-@@ -110,7 +_,16 @@
+@@ -110,16 +106,7 @@
          }
      }
  
 -    public void tickPlayer(final ServerPlayer player) {
 +    public synchronized void tickPlayer(final ServerPlayer player) { // Canvas - synchronized
-+        // Canvas start - Threaded Regions
-+        if (player.npr.get() != this) {
-+            // player owned by a diff nearbyplayers ref... what?
-+            if (player.npr.get() != null) {
-+                player.npr.get().removePlayer(player);
-+            } // else | no need to remove, was already removed
-+            this.addPlayer(player);
-+        }
-+        // Canvas end
          final TrackedPlayer[] players = this.players.get(player);
          if (players == null) {
              throw new IllegalStateException("Don't have player " + player);
-@@ -121,13 +_,13 @@
+@@ -128,13 +115,13 @@
+         final ChunkPos chunk = player.chunkPosition();
+ 
          players[NearbyMapType.GENERAL.ordinal()].update(chunk.x, chunk.z, GENERAL_AREA_VIEW_DISTANCE);
          players[NearbyMapType.GENERAL_SMALL.ordinal()].update(chunk.x, chunk.z, GENERAL_SMALL_VIEW_DISTANCE);
          players[NearbyMapType.GENERAL_REALLY_SMALL.ordinal()].update(chunk.x, chunk.z, GENERAL_REALLY_SMALL_VIEW_DISTANCE);
@@ -93,7 +74,7 @@
      }
  
      public TrackedChunk getChunk(final BlockPos pos) {
-@@ -143,7 +_,7 @@
+@@ -150,7 +137,7 @@
      }
  
      public ReferenceList<ServerPlayer> getPlayers(final ChunkPos pos, final NearbyMapType type) {
@@ -102,7 +83,7 @@
      }
  
      public ReferenceList<ServerPlayer> getPlayersByChunk(final int chunkX, final int chunkZ, final NearbyMapType type) {
-@@ -244,7 +_,7 @@
+@@ -244,7 +231,7 @@
                  created.addPlayer(parameter, type);
                  type.addTo(parameter, NearbyPlayers.this.world, chunkX, chunkZ);
  
@@ -111,7 +92,7 @@
              }
          }
  
-@@ -263,10 +_,7 @@
+@@ -263,10 +250,7 @@
  
              if (chunk.isEmpty()) {
                  NearbyPlayers.this.byChunk.remove(chunkKey);
