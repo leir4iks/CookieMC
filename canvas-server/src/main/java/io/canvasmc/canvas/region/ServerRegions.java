@@ -450,9 +450,9 @@ public class ServerRegions {
             if (!player.isAlive()) {
                 throw new IllegalStateException("player " + player.getScoreboardName() + " became invalid during teleport cleanup phase");
             }
-            final ServerEntityLookup entityLookup = ((ChunkSystemServerLevel)sourceLevel).getVisibleEntities();
+            final ServerEntityLookup entityLookup = ((ChunkSystemServerLevel)sourceLevel).moonrise$getVisibleEntities();
             entityLookup.performSynchronousRemoval(player);
-            sourceLevel.getChunkSource().getChunkMap().untrack(player);
+            sourceLevel.getChunkSource().chunkMap.untrack(player);
         }, sourceRegion.getData().tickHandle);
 
         return cleanupFuture.thenComposeAsync(v -> {
@@ -478,7 +478,7 @@ public class ServerRegions {
                         }
 
                         if (player.serverLevel() != targetLevel) {
-                            player.teleport(new TeleportTransition(targetLevel, new Vec3(location.getX(), location.getY(), location.getZ()), Vec3.ZERO, location.getYaw(), location.getPitch(), TeleportTransition.PostTeleportTransition.STANDARD));
+                            player.teleport(new TeleportTransition(targetLevel, new Vec3(location.getX(), location.getY(), location.getZ()), Vec3.ZERO, location.getYaw(), location.getPitch(), TeleportTransition.PostTeleportTransition.DO_NOTHING));
                         } else {
                             player.teleportTo(targetLevel, location.getX(), location.getY(), location.getZ(), Set.of(), location.getYaw(), location.getPitch(), false);
                         }
@@ -496,7 +496,7 @@ public class ServerRegions {
                 try {
                     sourceRegion.getData().tickHandle.execute(() -> {
                         if (player.isAlive()) {
-                            player.teleportTo(sourceLevel, player.getX(), player.getY(), player.getZ(), player.getYRot(), player.getXRot());
+                            player.teleportTo(sourceLevel, player.getX(), player.getY(), player.getZ(), Set.of(), player.getYRot(), player.getXRot(), false);
                         }
                     });
                 } catch (final Exception rescueEx) {

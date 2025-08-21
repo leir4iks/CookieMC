@@ -1,14 +1,24 @@
 --- a/src/main/java/org/bukkit/craftbukkit/entity/CraftEntity.java
 +++ b/src/main/java/org/bukkit/craftbukkit/entity/CraftEntity.java
-@@ -5,6 +_,7 @@
+@@ -5,9 +5,16 @@
  import com.google.common.base.Predicates;
  import com.google.common.collect.ImmutableSet;
  import com.google.common.collect.Lists;
++import io.canvasmc.canvas.region.ServerRegion;
 +import io.canvasmc.canvas.region.ServerRegions;
  import io.papermc.paper.datacomponent.DataComponentType;
  import io.papermc.paper.entity.TeleportFlag;
  import java.util.HashSet;
-@@ -337,7 +_,7 @@
+ import java.util.List;
+ import java.util.Set;
+ import java.util.UUID;
++import java.util.concurrent.CompletableFuture;
++import ca.spottedleaf.moonrise.patches.chunk_system.level.ChunkSystemServerLevel;
++import ca.spottedleaf.moonrise.patches.chunk_system.level.entity.server.ServerEntityLookup;
+ import io.papermc.paper.entity.LookAnchor;
+ import java.util.concurrent.CompletableFuture;
+ import net.kyori.adventure.util.TriState;
+@@ -337,7 +344,7 @@
          if (dismount) this.entity.stopRiding(); // Paper - Teleport passenger API
  
          // Let the server handle cross world teleports
@@ -17,7 +27,7 @@
              // Prevent teleportation to an other world during world generation
              Preconditions.checkState(!this.entity.generation, "Cannot teleport entity to an other world during world generation");
              this.entity.teleport(new TeleportTransition(((CraftWorld) location.getWorld()).getHandle(), CraftLocation.toVec3(location), Vec3.ZERO, location.getPitch(), location.getYaw(), Set.of(), TeleportTransition.DO_NOTHING, TeleportCause.PLUGIN));
-@@ -754,7 +_,7 @@
+@@ -754,7 +761,7 @@
          ImmutableSet.Builder<Player> players = ImmutableSet.builder();
  
          ServerLevel world = ((CraftWorld) this.getWorld()).getHandle();
@@ -26,7 +36,7 @@
  
          if (entityTracker != null) {
              for (ServerPlayerConnection connection : entityTracker.seenBy) {
-@@ -1067,7 +_,7 @@
+@@ -1067,7 +1074,7 @@
          }
  
          ServerLevel world = ((CraftWorld) this.getWorld()).getHandle();
@@ -35,7 +45,7 @@
  
          if (entityTracker == null) {
              return;
-@@ -1084,7 +_,7 @@
+@@ -1084,7 +1091,7 @@
          }
  
          ServerLevel world = ((CraftWorld) this.getWorld()).getHandle();
@@ -44,10 +54,14 @@
  
          if (entityTracker == null) {
              return;
-@@ -1121,26 +_,54 @@
-         ServerLevel world = ((CraftWorld)locationClone.getWorld()).getHandle();
-         CompletableFuture<Boolean> ret = new java.util.concurrent.CompletableFuture<>();
- 
+@@ -1118,52 +1125,59 @@
+         Preconditions.checkArgument(location != null, "location");
+         location.checkFinite();
+         Location locationClone = location.clone(); // clone so we don't need to worry about mutations after this call.
+-
+-        ServerLevel world = ((CraftWorld)locationClone.getWorld()).getHandle();
+-        CompletableFuture<Boolean> ret = new java.util.concurrent.CompletableFuture<>();
+-
 -        world.loadChunksForMoveAsync(this.getHandle().getBoundingBoxAt(locationClone.getX(), locationClone.getY(), locationClone.getZ()),
 -            this instanceof CraftPlayer ? ca.spottedleaf.concurrentutil.util.Priority.HIGHER : ca.spottedleaf.concurrentutil.util.Priority.NORMAL, (list) -> {
 -                MinecraftServer.getServer().scheduleOnMain(() -> {
@@ -63,60 +77,61 @@
 -                        }
 -                        MinecraftServer.LOGGER.error("Failed to teleport entity " + CraftEntity.this, throwable);
 -                        ret.completeExceptionally(throwable);
-+        // Canvas start - Threaded Regions
-+        java.util.function.Consumer<List<net.minecraft.world.level.chunk.ChunkAccess>> finalizer = (list) -> {
-+            final ServerChunkCache chunkCache = world.getChunkSource();
-+            for (final net.minecraft.world.level.chunk.ChunkAccess chunk : list) {
-+                chunkCache.addTicketAtLevel(TicketType.POST_TELEPORT, chunk.getPos(), 33);
-+            }
-+            try {
-+                ret.complete(CraftEntity.this.teleport(locationClone, cause, teleportFlags) ? Boolean.TRUE : Boolean.FALSE);
-+            } catch (Throwable throwable) {
-+                if (throwable instanceof ThreadDeath) {
-+                    throw (ThreadDeath)throwable;
-+                }
-+                MinecraftServer.LOGGER.error("Failed to teleport entity " + CraftEntity.this, throwable);
-+                ret.completeExceptionally(throwable);
-+            }
-+        };
-+        Runnable task = () -> {
-+            world.loadChunksForMoveAsync(this.getHandle().getBoundingBoxAt(locationClone.getX(), locationClone.getY(), locationClone.getZ()),
-+                this instanceof CraftPlayer ? ca.spottedleaf.concurrentutil.util.Priority.HIGHER : ca.spottedleaf.concurrentutil.util.Priority.NORMAL, (list) -> {
-+                    {
-+                        if (org.bukkit.Bukkit.isOwnedByCurrentRegion(this)) {
-+                            finalizer.accept(list);
-+                            return;
-+                        }
-+
-+                        boolean scheduled = this.taskScheduler.schedule(
-+                            // success
-+                            (_) -> finalizer.accept(list),
-+                            // retired
-+                            (Entity _) -> {
-+                                ret.complete(Boolean.FALSE);
-+                            },
-+                            1L
-+                        );
-+
-+                        if (!scheduled) {
-+                            ret.complete(Boolean.FALSE);
-+                        }
-                     }
-                 });
+-                    }
+-                });
 -            });
 -
-+        };
-+        if (!ServerRegions.isTickThreadFor(this.getHandle())) {
-+            this.taskScheduler.schedule((_) -> task.run(), null, 0);
-+            return ret;
+-        return ret;
++        final Entity handle = this.getHandle();
++
++        if (!handle.isAlive()) {
++            return CompletableFuture.completedFuture(false);
 +        }
-+        task.run(); // is tick thread for entity, just run this
-         return ret;
-+        // Canvas end
++
++        final ServerLevel sourceLevel = handle.serverLevel();
++        final ServerRegion sourceRegion = ServerRegions.getRegionFor(sourceLevel, handle.chunkPosition());
++        final ServerLevel targetLevel = ((CraftWorld) locationClone.getWorld()).getHandle();
++        final ServerRegion targetRegion = ServerRegions.getRegionFor(targetLevel, new net.minecraft.world.level.ChunkPos(locationClone.getBlockX() >> 4, locationClone.getBlockZ() >> 4));
++
++        if (sourceRegion == targetRegion) {
++            return CompletableFuture.supplyAsync(() -> this.teleport(locationClone, cause, teleportFlags), sourceRegion.getExecutor());
++        }
++
++        final CompletableFuture<Void> cleanupFuture = CompletableFuture.runAsync(() -> {
++            if (!handle.isAlive()) {
++                throw new IllegalStateException("Entity " + this + " became invalid during teleport cleanup phase");
++            }
++            ((ChunkSystemServerLevel) sourceLevel).getVisibleEntities().performSynchronousRemoval(handle);
++            sourceLevel.getChunkSource().getChunkMap().untrack(handle);
++        }, sourceRegion.getExecutor());
++
++        return cleanupFuture.thenComposeAsync(v -> {
++            final CompletableFuture<Boolean> placementFuture = new CompletableFuture<>();
++            targetLevel.loadChunksForMoveAsync(handle.getBoundingBoxAt(locationClone.getX(), locationClone.getY(), locationClone.getZ()),
++                this instanceof CraftPlayer ? ca.spottedleaf.concurrentutil.util.Priority.HIGHER : ca.spottedleaf.concurrentutil.util.Priority.NORMAL, (loadedChunks) -> {
++                    try {
++                        if (!handle.isAlive()) {
++                            placementFuture.complete(false);
++                            return;
++                        }
++                        final ServerChunkCache chunkCache = targetLevel.getChunkSource();
++                        for (final net.minecraft.world.level.chunk.ChunkAccess chunk : loadedChunks) {
++                            chunkCache.addTicketAtLevel(TicketType.POST_TELEPORT, chunk.getPos(), 33);
++                        }
++                        placementFuture.complete(this.teleport(locationClone, cause, teleportFlags));
++                    } catch (Throwable throwable) {
++                        placementFuture.completeExceptionally(throwable);
++                    }
++                });
++            return placementFuture;
++        }, targetRegion.getExecutor()).exceptionally(ex -> {
++            MinecraftServer.LOGGER.error("Async teleport failed for entity " + this, ex);
++            return false;
++        });
      }
      // Paper end - more teleport API / async chunk API
  
-@@ -1214,7 +_,7 @@
+@@ -1214,7 +1228,7 @@
      @Override
      public Set<org.bukkit.entity.Player> getTrackedPlayers() {
          ServerLevel world = (net.minecraft.server.level.ServerLevel)this.entity.level();
