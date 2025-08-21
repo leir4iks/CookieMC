@@ -1,12 +1,11 @@
 --- a/net/minecraft/server/level/ServerPlayer.java
 +++ b/net/minecraft/server/level/ServerPlayer.java
-@@ -1,5 +_,9 @@
+@@ -1,5 +_,8 @@
  package net.minecraft.server.level;
  
 +import ca.spottedleaf.moonrise.common.misc.NearbyPlayers;
 +import java.util.concurrent.atomic.AtomicReference;
 +import io.canvasmc.canvas.Config;
-+import io.canvasmc.canvas.region.ServerRegions;
  import com.google.common.cache.CacheBuilder;
  import com.google.common.cache.CacheLoader;
  import com.google.common.cache.LoadingCache;
@@ -19,7 +18,7 @@
  import net.minecraft.world.Container;
  import net.minecraft.world.Difficulty;
  import net.minecraft.world.InteractionHand;
-@@ -188,7 +_,10 @@
+@@ -188,7 +_,9 @@
  
  public class ServerPlayer extends Player implements ca.spottedleaf.moonrise.patches.chunk_system.player.ChunkSystemServerPlayer { // Paper - rewrite chunk system
      private static final Logger LOGGER = LogUtils.getLogger();
@@ -27,19 +26,18 @@
 +    // Canvas start - Threaded Regions
 +    public static final long LAST_SAVE_ABSENT = Long.MIN_VALUE;
 +    public long lastSave = LAST_SAVE_ABSENT; // Paper - Incremental chunk and player saving
-+    // Canvas end
      private static final int NEUTRAL_MOB_DEATH_NOTIFICATION_RADII_XZ = 32;
      private static final int NEUTRAL_MOB_DEATH_NOTIFICATION_RADII_Y = 10;
      private static final int FLY_STAT_RECORDING_SPEED = 25;
-@@ -257,6 +_,7 @@
+@@ -257,7 +_,6 @@
      private Vec3 lastKnownClientMovement = Vec3.ZERO;
      private Input lastClientInput = Input.EMPTY;
      private final Set<ThrownEnderpearl> enderPearls = new HashSet<>();
-+    public final AtomicReference<NearbyPlayers> npr = new AtomicReference<>(); // Canvas - Threaded Regions
+-    public final AtomicReference<NearbyPlayers> npr = new AtomicReference<>(); // Canvas - Threaded Regions
      public final ContainerSynchronizer containerSynchronizer = new ContainerSynchronizer() {
          private final LoadingCache<TypedDataComponent<?>, Integer> cache = CacheBuilder.newBuilder()
              .maximumSize(256L)
-@@ -424,6 +_,7 @@
+@@ -423,7 +_,7 @@
      private boolean tpsBar = false; // Purpur - Implement TPSBar
      private boolean compassBar = false; // Purpur - Add compass command
      private boolean ramBar = false; // Purpur - Implement rambar commands
@@ -47,7 +45,7 @@
  
      // Paper start - rewrite chunk system
      private ca.spottedleaf.moonrise.patches.chunk_system.player.RegionizedPlayerChunkLoader.PlayerChunkLoaderData chunkLoader;
-@@ -493,7 +_,7 @@
+@@ -492,7 +_,7 @@
              long l1 = l * l;
              int i = l1 > 2147483647L ? Integer.MAX_VALUE : (int)l1;
              int coprime = this.getCoprime(i);
@@ -56,7 +54,7 @@
  
              for (int i1 = 0; i1 < i; i1++) {
                  int i2 = (randomInt + coprime * i1) % i;
-@@ -772,12 +_,24 @@
+@@ -771,12 +_,21 @@
  
          Entity camera = this.getCamera();
          if (camera != this) {
@@ -82,32 +80,39 @@
              } else {
                  this.setCamera(this);
              }
-@@ -802,6 +_,24 @@
+@@ -801,23 +_,18 @@
          }
          // Purpur end - Ridables
      }
 +    // Canvas start - Threaded Regions
-+
-+    private void teleportToCameraOffRegion() {
-+        Entity cameraFinal = this.getCamera();
-+        // use the task scheduler, as we don't know where the caller is invoking from
-+        if (this != cameraFinal) {
-+            this.getBukkitEntity().taskScheduler.schedule((final ServerPlayer newPlayer) -> {
-+                io.canvasmc.canvas.region.ServerRegions.teleport(
-+                    newPlayer, false, cameraFinal, null, null,
-+                    org.bukkit.event.player.PlayerTeleportEvent.TeleportCause.SPECTATE, null,
-+                    (final ServerPlayer newerPlayer) -> {
-+                        return newerPlayer.camera == cameraFinal;
-+                    }
-+                );
-+            }, null, 1L);
-+        } // else: do not bother teleporting to self
-+    }
-+    // Canvas end
+ 
+     private void teleportToCameraOffRegion() {
+-        Entity cameraFinal = this.getCamera();
+-        // use the task scheduler, as we don't know where the caller is invoking from
++        final Entity cameraFinal = this.getCamera();
+         if (this != cameraFinal) {
+-            this.getBukkitEntity().taskScheduler.schedule((final ServerPlayer newPlayer) -> {
+-                io.canvasmc.canvas.region.ServerRegions.teleport(
+-                    newPlayer, false, cameraFinal, null, null,
+-                    org.bukkit.event.player.PlayerTeleportEvent.TeleportCause.SPECTATE, null,
+-                    (final ServerPlayer newerPlayer) -> {
+-                        return newerPlayer.camera == cameraFinal;
+-                    }
+-                );
+-            }, null, 1L);
+-        } // else: do not bother teleporting to self
++            io.canvasmc.canvas.region.ServerRegions.teleportAsync(this, cameraFinal.getBukkitEntity().getLocation(), org.bukkit.event.player.PlayerTeleportEvent.TeleportCause.SPECTATE)
++                .exceptionally(ex -> {
++                    LOGGER.warn("Failed to teleport player {} to spectate {}", this.getScoreboardName(), cameraFinal.getScoreboardName(), ex);
++                    return false;
++                });
++        }
+     }
+-    // Canvas end
  
      private void updatePlayerAttributes() {
          AttributeInstance attribute = this.getAttribute(Attributes.BLOCK_INTERACTION_RANGE);
-@@ -826,15 +_,22 @@
+@@ -842,15 +_,22 @@
      public void doTick() {
          try {
              if (valid && !this.isSpectator() || !this.touchingUnloadedChunk()) { // Paper - don't tick dead players that are not in the world currently (pending respawn)
@@ -131,7 +136,7 @@
  
              if (this.getHealth() != this.lastSentHealth
                  || this.lastSentFood != this.foodData.getFoodLevel()
-@@ -905,6 +_,7 @@
+@@ -921,7 +_,7 @@
              }
              // CraftBukkit end
          } catch (Throwable var4) {
@@ -139,7 +144,7 @@
              CrashReport crashReport = CrashReport.forThrowable(var4, "Ticking player");
              CrashReportCategory crashReportCategory = crashReport.addCategory("Player being ticked");
              this.fillCrashReportCategory(crashReportCategory);
-@@ -1030,6 +_,7 @@
+@@ -1044,7 +_,7 @@
      // Paper end - Expand PlayerDeathEvent API
      @Override
      public void die(DamageSource cause) {
@@ -147,7 +152,7 @@
          // this.gameEvent(GameEvent.ENTITY_DIE); // Paper - move below event cancellation check
          boolean _boolean = this.serverLevel().getGameRules().getBoolean(GameRules.RULE_SHOWDEATHMESSAGES); final boolean showDeathMessage = _boolean; // Paper - OBFHELPER
          // CraftBukkit start - fire PlayerDeathEvent
-@@ -1146,6 +_,7 @@
+@@ -1160,7 +_,7 @@
          this.getCombatTracker().recheckStatus();
          this.setLastDeathLocation(Optional.of(GlobalPos.of(this.level().dimension(), this.blockPosition())));
          this.setClientLoaded(false);
@@ -155,7 +160,7 @@
      }
  
      private void tellNeutralMobsThatIDied() {
-@@ -1408,14 +_,10 @@
+@@ -1422,18 +_,13 @@
                  this.unsetRemoved();
                  */
                  // CraftBukkit end
@@ -170,7 +175,7 @@
                  // CraftBukkit start
                  this.isChangingDimension = true; // CraftBukkit - Set teleport invulnerability only if player changing worlds
                  LevelData worlddata = level.getLevelData();
-@@ -1433,7 +_,6 @@
+@@ -1451,7 +_,6 @@
                  this.connection.internalTeleport(PositionMoveRotation.of(teleportTransition), teleportTransition.relatives()); // CraftBukkit - use internal teleport without event
                  this.connection.resetPosition();
                  level.addDuringTeleport(this);
@@ -178,21 +183,15 @@
                  this.triggerDimensionChangeTriggers(serverLevel);
                  this.stopUsingItem();
                  this.connection.send(new ClientboundPlayerAbilitiesPacket(this.getAbilities()));
-@@ -1520,6 +_,13 @@
+@@ -1534,7 +_,6 @@
          super.take(entity, quantity);
          this.containerMenu.broadcastChanges();
      }
-+    // Canvas start - cache eligible players for despawn checks
-+
-+    @Override
-+    public boolean isAlive() {
-+        return !this.isRemoved() && this.entityData.get(DATA_HEALTH_ID) > 0.0f && !this.dead;
-+    }
-+    // Canvas end
+-    // Canvas start - cache eligible players for despawn checks
  
-     // CraftBukkit start - moved bed result checks from below into separate method
-     private Either<Player.BedSleepingProblem, Unit> getBedResult(BlockPos at, Direction direction) {
-@@ -2152,12 +_,18 @@
+     @Override
+     public boolean isAlive() {
+@@ -2166,19 +_,18 @@
  
      @Override
      public void crit(Entity entityHit) {
@@ -213,7 +212,7 @@
      }
  
      @Override
-@@ -2188,6 +_,7 @@
+@@ -2202,7 +_,7 @@
              this.connection.send(new ClientboundGameEventPacket(ClientboundGameEventPacket.CHANGE_GAME_MODE, gameMode.getId()));
              if (gameMode == GameType.SPECTATOR) {
                  this.removeEntitiesOnShoulder();
@@ -221,7 +220,7 @@
                  this.stopRiding();
                  EnchantmentHelper.stopLocationBasedEffects(this);
              } else {
-@@ -2464,6 +_,11 @@
+@@ -2478,10 +_,11 @@
      }
  
      public void setCamera(@Nullable Entity entityToSpectate) {
@@ -233,7 +232,7 @@
          Entity camera = this.getCamera();
          this.camera = (Entity)(entityToSpectate == null ? this : entityToSpectate);
          if (camera != this.camera) {
-@@ -2482,16 +_,17 @@
+@@ -2500,18 +_,16 @@
                  }
              }
              // Paper end - Add PlayerStartSpectatingEntityEvent and PlayerStopSpectatingEntity
