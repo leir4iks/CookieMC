@@ -24,43 +24,29 @@
  import org.slf4j.Logger;
  
  public class ServerConfigurationPacketListenerImpl extends ServerCommonPacketListenerImpl implements ServerConfigurationPacketListener, TickablePacketListener {
-@@ -159,8 +_,41 @@
+@@ -159,8 +_,26 @@
                  return;
              }
  
-+            // Canvas start - Threaded Regions
-+            final int chunkX = this.player.chunkPosition().x;
-+            final int chunkZ = this.player.chunkPosition().z;
++            // Canvas start - Asynchronous player placement
 +            final ServerLevel world = this.player.serverLevel();
-+            // place ticket
 +            LOGGER.info("Placing ticket for login and queuing placement task for player '{}'", this.player.getName().getString());
++            world.getChunkSource().updateRegionTicket(this.player.chunkPosition(), true, TicketType.LOGIN);
++            
              ServerPlayer playerForLogin = playerList.getPlayerForLogin(this.gameProfile, this.clientInformation, this.player); // CraftBukkit
 -            playerList.placeNewPlayer(this.connection, playerForLogin, this.createCookie(this.clientInformation));
-+            Runnable placementTask = () -> {
-+                try {
-+                    playerList.placeNewPlayer(this.connection, playerForLogin, this.createCookie(this.clientInformation));
-+                } catch (Exception e) {
-+                    this.player.getBukkitEntity().taskScheduler.schedule((_) -> {
-+                        LOGGER.error("Unable to load new player, removing login ticket", e);
-+                        world.getChunkSource().updateRegionTicket(player.chunkPosition(), false, TicketType.LOGIN);
-+                    }, null, 0);
-+                } finally {
-+                    this.player.getBukkitEntity().taskScheduler.schedule((_) -> {
-+                        LOGGER.info("Finished placing new player, removing login ticket");
-+                        world.getChunkSource().updateRegionTicket(player.chunkPosition(), false, TicketType.LOGIN);
-+                    }, null, 0);
-+                }
-+            };
++            
 +            world.loadChunksForMoveAsync(
 +                playerForLogin.getBoundingBox().inflate(5),
 +                Priority.HIGHER,
-+                (_) -> {
-+                    world.getChunkSource().updateRegionTicket(chunkX, chunkZ, true, TicketType.LOGIN);
-+                    // queue tick task
-+                    MinecraftServer.getThreadedServer().taskQueue.queueTickTaskQueue(
-+                        world, chunkX, chunkZ,
-+                        placementTask, Priority.HIGHER
-+                    );
++                (chunks) -> {
++                    this.server.execute(() -> {
++                        try {
++                            playerList.placeNewPlayer(this.connection, playerForLogin, this.createCookie(this.clientInformation));
++                        } finally {
++                            world.getChunkSource().updateRegionTicket(this.player.chunkPosition(), false, TicketType.LOGIN);
++                        }
++                    });
 +                }
 +            );
 +            // Canvas end
