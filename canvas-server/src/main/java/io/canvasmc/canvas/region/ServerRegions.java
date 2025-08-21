@@ -37,12 +37,15 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
+import ca.spottedleaf.moonrise.patches.chunk_system.level.ChunkSystemServerLevel;
+import ca.spottedleaf.moonrise.patches.chunk_system.level.entity.server.ServerEntityLookup;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.SectionPos;
 import net.minecraft.network.Connection;
@@ -50,8 +53,10 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.dedicated.DedicatedServer;
 import net.minecraft.server.level.ChunkHolder;
+import net.minecraft.server.level.ServerChunkCache;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.server.level.TicketType;
 import net.minecraft.server.network.ServerGamePacketListenerImpl;
 import net.minecraft.util.RandomSource;
 import net.minecraft.util.VisibleForDebug;
@@ -76,6 +81,7 @@ import net.minecraft.world.level.levelgen.RandomSupport;
 import net.minecraft.world.level.levelgen.XoroshiroRandomSource;
 import net.minecraft.world.level.material.Fluid;
 import net.minecraft.world.level.pathfinder.PathTypeCache;
+import net.minecraft.world.level.portal.TeleportTransition;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.ticks.LevelTicks;
@@ -86,12 +92,6 @@ import org.bukkit.event.player.PlayerTeleportEvent;
 import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-import java.util.concurrent.CompletableFuture;
-import ca.spottedleaf.moonrise.patches.chunk_system.level.ChunkSystemServerLevel;
-import ca.spottedleaf.moonrise.patches.chunk_system.level.entity.server.ServerEntityLookup;
-import net.minecraft.server.level.ServerChunkCache;
-import net.minecraft.server.level.TicketType;
-import net.minecraft.world.level.portal.TeleportTransition;
 
 public class ServerRegions {
 
@@ -268,7 +268,7 @@ public class ServerRegions {
 
         if (entity instanceof ServerPlayer serverPlayer) {
             ServerGamePacketListenerImpl conn = serverPlayer.connection;
-            return tickData.connections.contains(conn.connection);
+            return conn != null && tickData.connections.contains(conn.connection);
         } else {
             return isTickThreadFor(entity.level(), entity.chunkPosition().x, entity.chunkPosition().z);
         }
@@ -429,9 +429,13 @@ public class ServerRegions {
         }
 
         final ServerLevel sourceLevel = player.serverLevel();
-        final ServerRegion sourceRegion = getRegionFor(sourceLevel, player.chunkPosition());
+        final ThreadedRegionizer.ThreadedRegion<TickRegionData, TickRegionSectionData> sourceRegion = sourceLevel.regioniser.getRegionAtUnsynchronised(player.chunkPosition().x, player.chunkPosition().z);
         final ServerLevel targetLevel = ((CraftWorld) location.getWorld()).getHandle();
-        final ServerRegion targetRegion = getRegionFor(targetLevel, new ChunkPos(location.getBlockX() >> 4, location.getBlockZ() >> 4));
+        final ThreadedRegionizer.ThreadedRegion<TickRegionData, TickRegionSectionData> targetRegion = targetLevel.regioniser.getRegionAtUnsynchronised(location.getBlockX() >> 4, location.getBlockZ() >> 4);
+
+        if (sourceRegion == null || targetRegion == null) {
+            return CompletableFuture.supplyAsync(() -> player.getBukkitEntity().teleport(location, cause), MinecraftServer.getServer());
+        }
 
         if (sourceRegion == targetRegion) {
             return CompletableFuture.supplyAsync(() -> {
@@ -439,7 +443,7 @@ public class ServerRegions {
                     return false;
                 }
                 return player.getBukkitEntity().teleport(location, cause);
-            }, sourceRegion.getExecutor());
+            }, sourceRegion.getData().tickHandle);
         }
 
         final CompletableFuture<Void> cleanupFuture = CompletableFuture.runAsync(() -> {
@@ -449,7 +453,7 @@ public class ServerRegions {
             final ServerEntityLookup entityLookup = ((ChunkSystemServerLevel)sourceLevel).getVisibleEntities();
             entityLookup.performSynchronousRemoval(player);
             sourceLevel.getChunkSource().getChunkMap().untrack(player);
-        }, sourceRegion.getExecutor());
+        }, sourceRegion.getData().tickHandle);
 
         return cleanupFuture.thenComposeAsync(v -> {
             final CompletableFuture<Boolean> placementFuture = new CompletableFuture<>();
@@ -473,7 +477,7 @@ public class ServerRegions {
                             chunkCache.addTicketAtLevel(TicketType.POST_TELEPORT, chunk.getPos(), 33);
                         }
 
-                        if (player.level() != targetLevel) {
+                        if (player.serverLevel() != targetLevel) {
                             player.teleport(new TeleportTransition(targetLevel, new Vec3(location.getX(), location.getY(), location.getZ()), Vec3.ZERO, location.getYaw(), location.getPitch(), TeleportTransition.PostTeleportTransition.STANDARD));
                         } else {
                             player.teleportTo(targetLevel, location.getX(), location.getY(), location.getZ(), Set.of(), location.getYaw(), location.getPitch(), false);
@@ -486,11 +490,11 @@ public class ServerRegions {
                 }
             );
             return placementFuture;
-        }, targetRegion.getExecutor()).exceptionally(ex -> {
+        }, targetRegion.getData().tickHandle).exceptionally(ex -> {
             MinecraftServer.LOGGER.error("region teleport failed for player " + player.getScoreboardName(), ex);
             if (!player.isRemoved() && player.serverLevel() != sourceLevel) {
                 try {
-                    sourceRegion.execute(() -> {
+                    sourceRegion.getData().tickHandle.execute(() -> {
                         if (player.isAlive()) {
                             player.teleportTo(sourceLevel, player.getX(), player.getY(), player.getZ(), player.getYRot(), player.getXRot());
                         }
