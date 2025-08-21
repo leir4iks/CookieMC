@@ -1,14 +1,14 @@
 --- a/ca/spottedleaf/moonrise/patches/chunk_system/level/entity/server/ServerEntityLookup.java
 +++ b/ca/spottedleaf/moonrise/patches/chunk_system/level/entity/server/ServerEntityLookup.java
-@@ -3,6 +3,7 @@
- import ca.spottedleaf.moonrise.common.PlatformHooks;
- import ca.spottedleaf.moonrise.common.list.ReferenceList;
- import ca.spottedleaf.moonrise.common.util.CoordinateUtils;
-+import ca.spottedleaf.moonrise.common.util.TickThread;
+@@ -7,6 +_,7 @@
  import ca.spottedleaf.moonrise.patches.chunk_system.level.ChunkSystemServerLevel;
  import ca.spottedleaf.moonrise.patches.chunk_system.level.entity.ChunkEntitySlices;
  import ca.spottedleaf.moonrise.patches.chunk_system.level.entity.EntityLookup;
-@@ -61,7 +62,7 @@
++import io.canvasmc.canvas.region.ServerRegions;
+ import net.minecraft.server.level.ServerLevel;
+ import net.minecraft.server.level.ServerPlayer;
+ import net.minecraft.world.entity.Entity;
+@@ -61,7 +_,7 @@
                                                 final int oldSectionX, final int oldSectionY, final int oldSectionZ,
                                                 final int newSectionX, final int newSectionY, final int newSectionZ) {
          if (entity instanceof ServerPlayer player) {
@@ -17,14 +17,14 @@
          }
          PlatformHooks.get().entityMove(
              entity,
-@@ -73,28 +74,35 @@
+@@ -73,28 +_,29 @@
      @Override
      protected void addEntityCallback(final Entity entity) {
          if (entity instanceof ServerPlayer player) {
 -            ((ChunkSystemServerLevel)this.serverWorld).moonrise$getNearbyPlayers().addPlayer(player);
 +            // ((ChunkSystemServerLevel)this.serverWorld).moonrise$getNearbyPlayers().addPlayer(player); // Canvas - Threaded Regions
          }
-+        io.canvasmc.canvas.region.ServerRegions.getTickData(this.world.level()).addEntity(entity); // Canvas - Threaded Regions
++        ServerRegions.getTickData(this.world.level()).addEntity(entity); // Canvas - Threaded Regions
      }
  
      @Override
@@ -39,7 +39,7 @@
      protected void entityStartLoaded(final Entity entity) {
          // Moonrise start - entity tracker
 -        this.trackerEntities.add(entity);
-+        io.canvasmc.canvas.region.ServerRegions.getRegionizedTickData(entity.chunkPosition().x, entity.chunkPosition().z, this.serverWorld).getTrackerEntities(entity.chunkPosition()).add(entity); // Canvas - Threaded Regions
++        ServerRegions.getRegionizedTickData(entity.chunkPosition().x, entity.chunkPosition().z, this.serverWorld).getTrackerEntities(entity.chunkPosition()).add(entity); // Canvas - Threaded Regions
          // Moonrise end - entity tracker
      }
  
@@ -47,13 +47,7 @@
      protected void entityEndLoaded(final Entity entity) {
          // Moonrise start - entity tracker
 -        this.trackerEntities.remove(entity);
-+        io.canvasmc.canvas.region.ServerRegions.getRegionizedTickData(entity.chunkPosition().x, entity.chunkPosition().z, this.serverWorld).getTrackerEntities(entity.chunkPosition()).remove(entity); // Canvas - Threaded Regions
++        ServerRegions.getRegionizedTickData(entity.chunkPosition().x, entity.chunkPosition().z, this.serverWorld).getTrackerEntities(entity.chunkPosition()).remove(entity); // Canvas - Threaded Regions
          // Moonrise end - entity tracker
      }
  
-+    public void performSynchronousRemoval(final Entity entity) {
-+        TickThread.ensureTickThread(entity, "Performing synchronous entity removal");
-+        this.removeEntityCallback(entity);
-+        this.entityEndLoaded(entity);
-+    }
-+
