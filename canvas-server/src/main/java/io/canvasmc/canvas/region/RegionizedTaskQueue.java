@@ -667,7 +667,7 @@ public final class RegionizedTaskQueue {
                     return false;
                 }
 
-                if (this.world.world.isRegionized()) {
+                if (this.world.world.server.isRegionized()) {
                     final ThreadedRegionizer.ThreadedRegion<ServerRegions.TickRegionData, ServerRegions.TickRegionSectionData> currentRegion = ServerRegions.pullLocalRegionSoft();
                     if (currentRegion != null) {
                         final ThreadedRegionizer.ThreadedRegion<ServerRegions.TickRegionData, ServerRegions.TickRegionSectionData> targetRegion = this.world.world.regioniser.getRegionAtUnsynchronised(this.chunkX, this.chunkZ);
