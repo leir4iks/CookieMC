@@ -13,7 +13,9 @@ import it.unimi.dsi.fastutil.objects.Reference2ReferenceMap;
 import it.unimi.dsi.fastutil.objects.Reference2ReferenceOpenHashMap;
 import java.lang.invoke.VarHandle;
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
@@ -54,9 +56,7 @@ public final class RegionizedTaskQueue {
     public PrioritisedExecutor.PrioritisedTask queueChunkTask(final ServerLevel world, final int chunkX, final int chunkZ,
                                                               final Runnable run, final Priority priority) {
         final PrioritisedExecutor.PrioritisedTask ret = this.createChunkTask(world, chunkX, chunkZ, run, priority);
-
         ret.queue();
-
         return ret;
     }
 
@@ -68,14 +68,13 @@ public final class RegionizedTaskQueue {
     public PrioritisedExecutor.PrioritisedTask queueTickTaskQueue(final ServerLevel world, final int chunkX, final int chunkZ,
                                                                   final Runnable run, final Priority priority) {
         final PrioritisedExecutor.PrioritisedTask ret = this.createTickTaskQueue(world, chunkX, chunkZ, run, priority);
-
         ret.queue();
-
         return ret;
     }
 
     public static final class WorldRegionTaskData {
         public final MultiThreadedQueue<Runnable> globalChunkTask = new MultiThreadedQueue<>();
+        public final MultiThreadedQueue<PrioritisedQueue.ChunkBasedPriorityTask> globalCrossRegionTaskQueue = new MultiThreadedQueue<>();
         private final ServerLevel world;
         private final Map<Long, ReferenceCountData> referenceCounters = new ConcurrentHashMap<>();
 
@@ -284,6 +283,30 @@ public final class RegionizedTaskQueue {
             if (allowedChunkTasks > 0) {
                 // if we executed chunk tasks, we should try to process ticket updates for full status changes
                 this.worldRegionTaskData.world.moonrise$getChunkTaskScheduler().chunkHolderManager.processTicketUpdates();
+            }
+        }
+
+        public void drainCrossRegionTasks(ThreadedRegionizer.ThreadedRegion<ServerRegions.TickRegionData, ServerRegions.TickRegionSectionData> currentRegion) {
+            final MultiThreadedQueue<PrioritisedQueue.ChunkBasedPriorityTask> globalQueue = this.worldRegionTaskData.globalCrossRegionTaskQueue;
+            if (globalQueue.isEmpty()) {
+                return;
+            }
+
+            final List<PrioritisedQueue.ChunkBasedPriorityTask> requeue = new ArrayList<>();
+            PrioritisedQueue.ChunkBasedPriorityTask task;
+
+            while ((task = globalQueue.poll()) != null) {
+                final ThreadedRegionizer.ThreadedRegion<ServerRegions.TickRegionData, ServerRegions.TickRegionSectionData> targetRegion = this.worldRegionTaskData.world.regioniser.getRegionAtUnsynchronised(task.chunkX, task.chunkZ);
+                if (targetRegion == currentRegion) {
+                    final PrioritisedQueue localQueue = task.isChunkTask ? this.chunkQueue : this.tickTaskQueue;
+                    localQueue.tryPush(task);
+                } else {
+                    requeue.add(task);
+                }
+            }
+
+            for (final PrioritisedQueue.ChunkBasedPriorityTask taskToRequeue : requeue) {
+                globalQueue.add(taskToRequeue);
             }
         }
 
@@ -522,10 +545,10 @@ public final class RegionizedTaskQueue {
             }
 
             private final WorldRegionTaskData world;
-            private final int chunkX;
-            private final int chunkZ;
+            final int chunkX;
+            final int chunkZ;
             private final long sectionLowerLeftCoord; // chunk coordinate
-            private final boolean isChunkTask;
+            final boolean isChunkTask;
             private volatile ReferenceCountData referenceCounter;
             private Runnable run;
             private volatile Priority priority;
@@ -642,6 +665,17 @@ public final class RegionizedTaskQueue {
                     // we don't expect race conditions here, so it is OK if we have to needlessly reference count
                     this.world.decrementReference(referenceCounter, this.sectionLowerLeftCoord);
                     return false;
+                }
+
+                if (this.world.world.isRegionized()) {
+                    final ThreadedRegionizer.ThreadedRegion<ServerRegions.TickRegionData, ServerRegions.TickRegionSectionData> currentRegion = ServerRegions.pullLocalRegionSoft();
+                    if (currentRegion != null) {
+                        final ThreadedRegionizer.ThreadedRegion<ServerRegions.TickRegionData, ServerRegions.TickRegionSectionData> targetRegion = this.world.world.regioniser.getRegionAtUnsynchronised(this.chunkX, this.chunkZ);
+                        if (targetRegion != null && currentRegion != targetRegion) {
+                            this.world.globalCrossRegionTaskQueue.add(this);
+                            return true;
+                        }
+                    }
                 }
 
                 boolean synchronise = false;

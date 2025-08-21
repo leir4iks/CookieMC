@@ -116,6 +116,7 @@ public class ChunkRegion extends TickScheduler.FullTick<ChunkRegion.TickHandle> 
 
     public boolean runRegionTasks(final BooleanSupplier canContinue) {
         final RegionizedTaskQueue.RegionTaskQueueData queue = this.region.getData().tickData.taskQueueData;
+        queue.drainCrossRegionTasks(this.region);
 
         boolean processedChunkTask = false;
 
