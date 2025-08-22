@@ -7,11 +7,11 @@ on:
 jobs:
   compile_1_21_5_core_jar:
     runs-on: ubuntu-latest
-       
+
     steps:
       - name: Checkout Git Repository
         uses: actions/checkout@v4
-        
+
       - name: Set up JDK
         uses: actions/setup-java@v4
         with:
@@ -20,14 +20,14 @@ jobs:
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
-        
+
       - name: Configure Git User Details
         run: |
           git config --global user.email "actions@github.com" && git config --global user.name "Github Actions"
-        
+
       - name: Apply Patches
         run: ./gradlew applyAllPatches --info
-   
+
       - name: Build Jar
         run: ./gradlew createMojmapPaperclipJar
 
@@ -37,3 +37,19 @@ jobs:
           name: canvas-paperclip-1.21.5-R0.1-SNAPSHOT-mojmap.jar
           path: canvas-server/build/libs/canvas-paperclip-1.21.5-R0.1-SNAPSHOT-mojmap.jar
           retention-days: 1
+
+      - name: kek build-results
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gradle-build-results
+          path: /home/runner/work/_temp/.gradle-actions/build-results/*.json
+          retention-days: 7
+
+      - name: kek problems-report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gradle-problems-report
+          path: ${{ github.workspace }}/build/reports/problems/problems-report.html
+          retention-days: 7
