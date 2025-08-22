@@ -443,17 +443,17 @@ public class ServerRegions {
                     return false;
                 }
                 return player.getBukkitEntity().teleport(location, cause);
-            }, sourceRegion.getData().tickHandle);
+            }, sourceRegion.getExecutor());
         }
 
         final CompletableFuture<Void> cleanupFuture = CompletableFuture.runAsync(() -> {
             if (!player.isAlive()) {
                 throw new IllegalStateException("player " + player.getScoreboardName() + " became invalid during teleport cleanup phase");
             }
-            final ServerEntityLookup entityLookup = ((ChunkSystemServerLevel)sourceLevel).moonrise$getVisibleEntities();
+            final ServerEntityLookup entityLookup = ((ChunkSystemServerLevel)sourceLevel).getVisibleEntities();
             entityLookup.performSynchronousRemoval(player);
-            sourceLevel.getChunkSource().chunkMap.untrack(player);
-        }, sourceRegion.getData().tickHandle);
+            sourceLevel.getChunkSource().getChunkMap().untrack(player);
+        }, sourceRegion.getExecutor());
 
         return cleanupFuture.thenComposeAsync(v -> {
             final CompletableFuture<Boolean> placementFuture = new CompletableFuture<>();
@@ -478,7 +478,7 @@ public class ServerRegions {
                         }
 
                         if (player.serverLevel() != targetLevel) {
-                            player.teleport(new TeleportTransition(targetLevel, new Vec3(location.getX(), location.getY(), location.getZ()), Vec3.ZERO, location.getYaw(), location.getPitch(), TeleportTransition.PostTeleportTransition.DO_NOTHING));
+                            player.teleport(new TeleportTransition(targetLevel, new Vec3(location.getX(), location.getY(), location.getZ()), Vec3.ZERO, location.getYaw(), location.getPitch(), TeleportTransition.PostTeleportTransition.STANDARD));
                         } else {
                             player.teleportTo(targetLevel, location.getX(), location.getY(), location.getZ(), Set.of(), location.getYaw(), location.getPitch(), false);
                         }
@@ -490,13 +490,13 @@ public class ServerRegions {
                 }
             );
             return placementFuture;
-        }, targetRegion.getData().tickHandle).exceptionally(ex -> {
+        }, targetRegion.getExecutor()).exceptionally(ex -> {
             MinecraftServer.LOGGER.error("region teleport failed for player " + player.getScoreboardName(), ex);
             if (!player.isRemoved() && player.serverLevel() != sourceLevel) {
                 try {
-                    sourceRegion.getData().tickHandle.execute(() -> {
+                    sourceRegion.getExecutor().execute(() -> {
                         if (player.isAlive()) {
-                            player.teleportTo(sourceLevel, player.getX(), player.getY(), player.getZ(), Set.of(), player.getYRot(), player.getXRot(), false);
+                            player.teleportTo(sourceLevel, player.getX(), player.getY(), player.getZ(), player.getYRot(), player.getXRot());
                         }
                     });
                 } catch (final Exception rescueEx) {
