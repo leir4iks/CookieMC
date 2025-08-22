@@ -1,8 +1,10 @@
 --- a/net/minecraft/server/level/ServerPlayer.java
 +++ b/net/minecraft/server/level/ServerPlayer.java
-@@ -1,5 +_,7 @@
+@@ -1,5 +_,9 @@
  package net.minecraft.server.level;
  
++import ca.spottedleaf.moonrise.common.misc.NearbyPlayers;
++import java.util.concurrent.atomic.AtomicReference;
 +import io.canvasmc.canvas.Config;
 +import io.canvasmc.canvas.region.ServerRegions;
  import com.google.common.cache.CacheBuilder;
@@ -29,6 +31,14 @@
      private static final int NEUTRAL_MOB_DEATH_NOTIFICATION_RADII_XZ = 32;
      private static final int NEUTRAL_MOB_DEATH_NOTIFICATION_RADII_Y = 10;
      private static final int FLY_STAT_RECORDING_SPEED = 25;
+@@ -257,7 +_,6 @@
+     private Vec3 lastKnownClientMovement = Vec3.ZERO;
+     private Input lastClientInput = Input.EMPTY;
+     private final Set<ThrownEnderpearl> enderPearls = new HashSet<>();
+-    public final AtomicReference<NearbyPlayers> npr = new AtomicReference<>(); // Canvas - Threaded Regions
+     public final ContainerSynchronizer containerSynchronizer = new ContainerSynchronizer() {
+         private final LoadingCache<TypedDataComponent<?>, Integer> cache = CacheBuilder.newBuilder()
+             .maximumSize(256L)
 @@ -424,6 +_,7 @@
      private boolean tpsBar = false; // Purpur - Implement TPSBar
      private boolean compassBar = false; // Purpur - Add compass command
@@ -72,12 +82,27 @@
              } else {
                  this.setCamera(this);
              }
-@@ -802,22 +_,25 @@
+@@ -802,22 +_,28 @@
          }
          // Purpur end - Ridables
      }
-+    // Canvas start - Threaded Regions
-+    private void teleportToCameraOffRegion() {
++
+     // Canvas start - Threaded Regions
+-
+     private void teleportToCameraOffRegion() {
+-        Entity cameraFinal = this.getCamera();
+-        // use the task scheduler, as we don't know where the caller is invoking from
+-        if (this != cameraFinal) {
+-            this.getBukkitEntity().taskScheduler.schedule((final ServerPlayer newPlayer) -> {
+-                io.canvasmc.canvas.region.ServerRegions.teleport(
+-                    newPlayer, false, cameraFinal, null, null,
+-                    org.bukkit.event.player.PlayerTeleportEvent.TeleportCause.SPECTATE, null,
+-                    (final ServerPlayer newerPlayer) -> {
+-                        return newerPlayer.camera == cameraFinal;
+-                    }
+-                );
+-            }, null, 1L);
+-        } // else: do not bother teleporting to self
 +        final Entity camera = this.getCamera();
 +        if (this == camera || camera.isRemoved()) {
 +            return;
@@ -95,11 +120,10 @@
 +            });
 +            return null;
 +        });
-+    }
-+    // Canvas end
+     }
+     // Canvas end
  
      private void updatePlayerAttributes() {
-         AttributeInstance attribute = this.getAttribute(Attributes.BLOCK_INTERACTION_RANGE);
 @@ -826,15 +_,22 @@
  
      @Override
@@ -241,16 +265,15 @@
 -                this.serverLevel().getChunkSource().move(this);
 -            }
 -
-+            // Canvas - Threaded Regions - move down && not needed
-+
+-            this.connection.send(new ClientboundSetCameraPacket(this.camera));
+-            this.connection.resetPosition();
 +            // Canvas start - Threaded Regions - handle camera setting better
 +            if (this.camera == this
 +                || (io.canvasmc.canvas.region.ServerRegions.isTickThreadFor(this.camera) && this.camera.moonrise$getTrackedEntity() != null
 +                && this.camera.moonrise$getTrackedEntity().seenBy.contains(this.connection))) {
-             this.connection.send(new ClientboundSetCameraPacket(this.camera));
--            this.connection.resetPosition();
++                this.connection.send(new ClientboundSetCameraPacket(this.camera));
 +            }
-+            // this.connection.resetPosition();
++
 +            this.teleportToCameraOffRegion();
 +            // Canvas end
          }
