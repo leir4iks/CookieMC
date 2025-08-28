@@ -37,15 +37,12 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
-import ca.spottedleaf.moonrise.patches.chunk_system.level.ChunkSystemServerLevel;
-import ca.spottedleaf.moonrise.patches.chunk_system.level.entity.server.ServerEntityLookup;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.SectionPos;
 import net.minecraft.network.Connection;
@@ -53,10 +50,8 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.dedicated.DedicatedServer;
 import net.minecraft.server.level.ChunkHolder;
-import net.minecraft.server.level.ServerChunkCache;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.server.level.TicketType;
 import net.minecraft.server.network.ServerGamePacketListenerImpl;
 import net.minecraft.util.RandomSource;
 import net.minecraft.util.VisibleForDebug;
@@ -81,7 +76,6 @@ import net.minecraft.world.level.levelgen.RandomSupport;
 import net.minecraft.world.level.levelgen.XoroshiroRandomSource;
 import net.minecraft.world.level.material.Fluid;
 import net.minecraft.world.level.pathfinder.PathTypeCache;
-import net.minecraft.world.level.portal.TeleportTransition;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.ticks.LevelTicks;
@@ -268,7 +262,7 @@ public class ServerRegions {
 
         if (entity instanceof ServerPlayer serverPlayer) {
             ServerGamePacketListenerImpl conn = serverPlayer.connection;
-            return conn != null && tickData.connections.contains(conn.connection);
+            return tickData.connections.contains(conn.connection);
         } else {
             return isTickThreadFor(entity.level(), entity.chunkPosition().x, entity.chunkPosition().z);
         }
@@ -417,95 +411,6 @@ public class ServerRegions {
                 onComplete.accept(null);
             }
         }
-    }
-
-    public static CompletableFuture<Boolean> teleportAsync(
-        final ServerPlayer player,
-        final Location location,
-        final PlayerTeleportEvent.TeleportCause cause
-    ) {
-        if (!player.isAlive()) {
-            return CompletableFuture.completedFuture(false);
-        }
-
-        final ServerLevel sourceLevel = player.serverLevel();
-        final ThreadedRegionizer.ThreadedRegion<TickRegionData, TickRegionSectionData> sourceRegion = sourceLevel.regioniser.getRegionAtUnsynchronised(player.chunkPosition().x, player.chunkPosition().z);
-        final ServerLevel targetLevel = ((CraftWorld) location.getWorld()).getHandle();
-        final ThreadedRegionizer.ThreadedRegion<TickRegionData, TickRegionSectionData> targetRegion = targetLevel.regioniser.getRegionAtUnsynchronised(location.getBlockX() >> 4, location.getBlockZ() >> 4);
-
-        if (sourceRegion == null || targetRegion == null) {
-            return CompletableFuture.supplyAsync(() -> player.getBukkitEntity().teleport(location, cause), MinecraftServer.getServer());
-        }
-
-        if (sourceRegion == targetRegion) {
-            return CompletableFuture.supplyAsync(() -> {
-                if (!player.isAlive()) {
-                    return false;
-                }
-                return player.getBukkitEntity().teleport(location, cause);
-            }, sourceRegion.getExecutor());
-        }
-
-        final CompletableFuture<Void> cleanupFuture = CompletableFuture.runAsync(() -> {
-            if (!player.isAlive()) {
-                throw new IllegalStateException("player " + player.getScoreboardName() + " became invalid during teleport cleanup phase");
-            }
-            final ServerEntityLookup entityLookup = ((ChunkSystemServerLevel)sourceLevel).getVisibleEntities();
-            entityLookup.performSynchronousRemoval(player);
-            sourceLevel.getChunkSource().getChunkMap().untrack(player);
-        }, sourceRegion.getExecutor());
-
-        return cleanupFuture.thenComposeAsync(v -> {
-            final CompletableFuture<Boolean> placementFuture = new CompletableFuture<>();
-            if (!player.isAlive()) {
-                placementFuture.complete(false);
-                return placementFuture;
-            }
-
-            targetLevel.loadChunksForMoveAsync(
-                player.getBoundingBoxAt(location.getX(), location.getY(), location.getZ()),
-                ca.spottedleaf.concurrentutil.util.Priority.HIGHER,
-                (loadedChunks) -> {
-                    try {
-                        if (!player.isAlive()) {
-                            placementFuture.complete(false);
-                            return;
-                        }
-
-                        final ServerChunkCache chunkCache = targetLevel.getChunkSource();
-                        for (final net.minecraft.world.level.chunk.ChunkAccess chunk : loadedChunks) {
-                            chunkCache.addTicketAtLevel(TicketType.POST_TELEPORT, chunk.getPos(), 33);
-                        }
-
-                        if (player.serverLevel() != targetLevel) {
-                            player.teleport(new TeleportTransition(targetLevel, new Vec3(location.getX(), location.getY(), location.getZ()), Vec3.ZERO, location.getYaw(), location.getPitch(), TeleportTransition.PostTeleportTransition.STANDARD));
-                        } else {
-                            player.teleportTo(targetLevel, location.getX(), location.getY(), location.getZ(), Set.of(), location.getYaw(), location.getPitch(), false);
-                        }
-
-                        placementFuture.complete(true);
-                    } catch (final Throwable throwable) {
-                        placementFuture.completeExceptionally(throwable);
-                    }
-                }
-            );
-            return placementFuture;
-        }, targetRegion.getExecutor()).exceptionally(ex -> {
-            MinecraftServer.LOGGER.error("region teleport failed for player " + player.getScoreboardName(), ex);
-            if (!player.isRemoved() && player.serverLevel() != sourceLevel) {
-                try {
-                    sourceRegion.getExecutor().execute(() -> {
-                        if (player.isAlive()) {
-                            player.teleportTo(sourceLevel, player.getX(), player.getY(), player.getZ(), player.getYRot(), player.getXRot());
-                        }
-                    });
-                } catch (final Exception rescueEx) {
-                    MinecraftServer.LOGGER.error("failed to rescue player " + player.getScoreboardName() + " after teleport failure", rescueEx);
-                    player.connection.disconnect(Component.literal("teleportation failed, please reconnect."));
-                }
-            }
-            return false;
-        });
     }
 
     public static final class TickRegionSectionData implements ThreadedRegionizer.ThreadedRegionSectionData {
@@ -1487,10 +1392,6 @@ public class ServerRegions {
         @Override
         public void onRegionDestroy(final ThreadedRegionizer.ThreadedRegion<TickRegionData, TickRegionSectionData> region) {
             TickRegionData data = region.getData();
-            final int cancelled = data.tickData.getTaskQueueData().cancelAllTasksAndCount();
-            if (Config.INSTANCE.debug.logRegionTaskCancellation && cancelled > 0) {
-                CanvasBootstrap.LOGGER.info("Cancelled " + cancelled + " pending tasks for destroyed region " + region);
-            }
             for (final Connection connection : data.tickData.connections) {
                 data.world.networkRouter.connectToWorld(connection);
             }
@@ -1505,10 +1406,6 @@ public class ServerRegions {
         @Override
         public void onRegionInactive(final ThreadedRegionizer.@NotNull ThreadedRegion<TickRegionData, TickRegionSectionData> region) {
             TickRegionData data = region.getData();
-            final int cancelled = data.tickData.getTaskQueueData().cancelAllTasksAndCount();
-            if (Config.INSTANCE.debug.logRegionTaskCancellation && cancelled > 0) {
-                CanvasBootstrap.LOGGER.info("Cancelled " + cancelled + " pending tasks for inactive region " + region);
-            }
             data.tickHandle.tick.markNonSchedulable();
         }
 
